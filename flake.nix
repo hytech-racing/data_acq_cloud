@@ -25,8 +25,6 @@
         shared_shell = pkgs.mkShell rec {
           name = "nix-devshell";
           packages = with pkgs; [
-            mongodb
-            mongosh
           ];
 
           shellHook = ''
