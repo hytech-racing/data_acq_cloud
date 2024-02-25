@@ -1,5 +1,8 @@
-from flask import Flask, request 
-from pymongo import MongoClient 
+from flask import Flask, request
+from pymongo import MongoClient
+from werkzeug.datastructures import FileStorage
+
+import upload
 
 app = Flask(__name__) 
 
@@ -27,6 +30,18 @@ def add_data():
 	collection.insert_one(data) 
 
 	return 'Data added to MongoDB'
+
+
+@app.route('/upload_mcap', methods=['POST'])
+def upload_mcap():
+	if 'file' in request.files:
+		try:
+			upload.save_mcap_file(request.files['file'])
+		except ValueError as e:
+			return 'fail: ' + str(e)
+
+		return 'success'
+	return 'fail: no file provided'
 
 
 if __name__ == '__main__': 
