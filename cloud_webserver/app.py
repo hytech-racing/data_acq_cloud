@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 # root route 
 @app.route('/') 
-def hello_world(): 
+def hello_world() -> str:
 	return 'Hello, World!'
 
 # Set up MongoDB connection and collection 
@@ -22,7 +22,7 @@ collection = db['data']
 
 # Add data to MongoDB route 
 @app.route('/add_data', methods=['POST']) 
-def add_data(): 
+def add_data() -> str:
 	# Get data from request 
 	data = request.json 
 
@@ -33,7 +33,7 @@ def add_data():
 
 
 @app.route('/upload_mcap', methods=['POST'])
-def upload_mcap():
+def upload_mcap() -> str:
 	if 'file' in request.files:
 		try:
 			upload.save_mcap_file(request.files['file'])
