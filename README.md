@@ -41,26 +41,24 @@ mongosh mongodb://admin:password@localhost:27017/
     - `show collections` to see the collections that have been written to
     - `db.<insert-collection-name-here>.find()` to list all data in specific collection
 
+### data acquisition data flow
 ```mermaid
----
-title: HyTech data acq dataflow
----
 flowchart TD
-    subgraph file offload
-        direction BT
-        car[on car data] --mcap file upload over ubiquiti.--> panda[base station]
-        panda[base station] -.mcap file upload over internt.-> aws[(data acq cloud DB / file storage)]
-    end
-    subgraph data provision
-        
-        aws2[(data acq cloud DB / file storage)] -.HTTP protocol.-> website[query builder site]
-        website --> file_serv
-        website --> mat
-        aws2 <-.user MAT query.-> mat[MAT file builder]
-        mat -.-> file_serv
-        aws2 <-.user MCAP query.-> file_serv[file download link]
-        file_serv -.-> matlab
-        file_serv -.-> python
-        file_serv -.-> foxglove
-    end
+subgraph file offload
+    direction BT
+    car[on car data] --mcap file upload over ubiquiti.--> panda[base station]
+    panda[base station] -.mcap file upload over internt.-> aws[(data acq cloud DB / file storage)]
+end
+subgraph data provision
+    
+    aws2[(data acq cloud DB / file storage)] -.HTTP protocol.-> website[query builder site]
+    website --> file_serv
+    website --> mat
+    aws2 <--user MAT query.-> mat[MAT file builder]
+    mat -.-> file_serv
+    aws2 <-.user MCAP query.-> file_serv[file download link]
+    file_serv -.-> matlab
+    file_serv -.-> python
+    file_serv -.-> foxglove
+end
 ```
