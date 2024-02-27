@@ -43,10 +43,11 @@ mongosh mongodb://admin:password@localhost:27017/
 
 ### data acquisition data flow
 ```mermaid
+
 flowchart TD
 subgraph file offload
     direction BT
-    car[on car data] --mcap file upload over ubiquiti.--> panda[base station]
+    car[on car data] --mcap file upload over ubiquiti--> panda[base station]
     panda[base station] -.mcap file upload over internt.-> aws[(data acq cloud DB / file storage)]
 end
 subgraph data provision
@@ -54,7 +55,7 @@ subgraph data provision
     aws2[(data acq cloud DB / file storage)] -.HTTP protocol.-> website[query builder site]
     website --> file_serv
     website --> mat
-    aws2 <--user MAT query.-> mat[MAT file builder]
+    aws2 <-.user MAT query.-> mat[MAT file builder]
     mat -.-> file_serv
     aws2 <-.user MCAP query.-> file_serv[file download link]
     file_serv -.-> matlab
