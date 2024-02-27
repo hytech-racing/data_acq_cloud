@@ -25,6 +25,7 @@
         shared_shell = pkgs.mkShell rec {
           name = "nix-devshell";
           packages = with pkgs; [
+            cloud_webserver_pkg
           ];
 
           shellHook = ''

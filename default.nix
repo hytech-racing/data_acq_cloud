@@ -8,7 +8,8 @@ python311Packages.buildPythonApplication {
 
   propagatedBuildInputs = [
     python311Packages.pymongo
-    python311Pachages.flask
+    python311Packages.flask
+    python311Packages.werkzeug
   ];
 
   src = ./cloud_webserver;
