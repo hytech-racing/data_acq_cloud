@@ -18,7 +18,7 @@
 
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ cloud_webserver_overlay mcap-protobuf.overlays.default mcap.overlays.default];
+          overlays = [ cloud_webserver_overlay mcap-protobuf.overlays.default mcap.overlays.default ];
         };
 
         shared_shell = pkgs.mkShell rec {
