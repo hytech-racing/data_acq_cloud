@@ -24,3 +24,19 @@ requirements:
 
 - to bring up the database development container simply run: `./docker_bringup.sh`
 - to shutdown the database dev container: `docker stop my_mongo`
+
+- to enter the docker container and run commands to interact with the database using `mongosh`: 
+```
+docker exec -it my_mongo /bin/bash
+```
+
+- to drop to `mongosh` CLI for looking at contents of database:
+```
+mongosh mongodb://admin:password@localhost:27017/
+```
+- in `mongosh` shell you can use the following commands
+
+    - `show databases` to list the databases that exist in the docker container
+    - `use HyTech_database` to switch to database that the script is writing to (can be seen on line 62 of the `write_and_read_metas.py` script)
+    - `show collections` to see the collections that have been written to
+    - `db.<insert-collection-name-here>.find()` to list all data in specific collection

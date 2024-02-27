@@ -4,9 +4,12 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
     flake-utils.url = "github:numtide/flake-utils";
+    mcap-protobuf.url = "github:RCMast3r/mcap-protobuf-support-flake";
+
+    mcap.url = "github:RCMast3r/py_mcap_nix";
   };
 
-  outputs = { self, nixpkgs, flake-utils, ... }:
+  outputs = { self, nixpkgs, flake-utils, mcap-protobuf, mcap, ... }:
     flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ] (system:
       let
         cloud_webserver_overlay = final: prev: {
@@ -15,11 +18,7 @@
 
         pkgs = import nixpkgs {
           inherit system;
-          config = {
-            allowUnfree = true;
-            # Include any other global Nixpkgs configuration here
-          };
-          overlays = [ cloud_webserver_overlay ];
+          overlays = [ cloud_webserver_overlay mcap-protobuf.overlays.default mcap.overlays.default ];
         };
 
         shared_shell = pkgs.mkShell rec {
