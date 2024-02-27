@@ -43,6 +43,7 @@ mongosh mongodb://admin:password@localhost:27017/
 
 ### data acquisition data flow
 ```mermaid
+
 flowchart TD
 subgraph file offload
     direction BT
@@ -54,7 +55,7 @@ subgraph data provision
     aws2[(data acq cloud DB / file storage)] -.HTTP protocol.-> website[query builder site]
     website --> file_serv
     website --> mat
-    aws2 <--user MAT query.-> mat[MAT file builder]
+    aws2 <-.user MAT query.-> mat[MAT file builder]
     mat -.-> file_serv
     aws2 <-.user MCAP query.-> file_serv[file download link]
     file_serv -.-> matlab
