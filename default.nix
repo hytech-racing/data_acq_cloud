@@ -13,6 +13,7 @@ python311Packages.buildPythonApplication {
     python311Packages.flask
     mcap_support_pkg
     py_mcap_pkg
+    python311Packages.werkzeug
   ];
 
   src = ./cloud_webserver;
