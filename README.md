@@ -46,7 +46,7 @@ mongosh mongodb://admin:password@localhost:27017/
 flowchart TD
 subgraph file offload
     direction BT
-    car[on car data] --mcap file upload over ubiquiti.--> panda[base station]
+    car[on car data] --mcap file upload over ubiquiti--> panda[base station]
     panda[base station] -.mcap file upload over internt.-> aws[(data acq cloud DB / file storage)]
 end
 subgraph data provision
@@ -62,3 +62,21 @@ subgraph data provision
     file_serv -.-> foxglove
 end
 ```
+
+### data acquisition overview
+- data acquisition management website (built into [data_acq](https://github.com/RCMast3r/data_acq/))
+    - [x] handles starting / stopping of recording
+    - [ ] handles the entry and management of the metadata that gets written into each log
+    - [ ] interfaces with the `base_station_service` for handling offloading of the data from the car
+    - runs on the car itself
+
+- `base_station_service` 
+    - [ ] python service that runs on the panda / base station computer that handles the upload over an internet connection
+    - [ ] communicates with the car to determine which logs havent been pulled off the car yet and pulls the ones that dont exist on the base station file system yet (data offload)
+    - [ ] communicates with the cloud hosted database and determines which mcap files arent a part of the database yet and uploads the ones that dont exist on remote yet (database ingress)
+
+- `cloud_webserver`
+    - [ ] handles the creation of new records in the mongodb infrastructure
+    - [ ] serves the query creation utility website that allows users to download selections of recorded data in multiple formats 
+    - [ ] handles the conversion from the MCAP files into other data formats on-demand (for now will only support MAT file formats)
+    - [ ] handles automated backup of mongodb database states and associated MCAP files
