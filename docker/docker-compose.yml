@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  my_service:
+    image: MongoDB
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=username
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    volumes:
+      - metadata_volume:/meta_data
+      - car_setup:/car_data
+
+volumes:
+  metadata_volume:
+  car_setup:
