@@ -14,6 +14,8 @@ python311Packages.buildPythonApplication {
     mcap_support_pkg
     py_mcap_pkg
     python311Packages.werkzeug
+    python311Packages.lz4
+    python311Packages.zstandard
   ];
 
   src = ./cloud_webserver;
