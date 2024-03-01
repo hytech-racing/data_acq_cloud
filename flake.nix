@@ -6,10 +6,16 @@
     flake-utils.url = "github:numtide/flake-utils";
     mcap-protobuf.url = "github:RCMast3r/mcap-protobuf-support-flake";
     mcap.url = "github:RCMast3r/py_mcap_nix";
+
+    nixos-generators = {
+      url = "github:nix-community/nixos-generators";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, mcap-protobuf, mcap, ... }:
+  outputs = { self, nixpkgs, flake-utils, mcap-protobuf, mcap, nixos-generators, ... }:
     flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ] (system:
+      
       let
         cloud_webserver_overlay = final: prev: {
           cloud_webserver_pkg = final.callPackage ./default.nix { };
@@ -59,11 +65,18 @@
 
           yaml_pkg = pkgs.yaml_pkg;
 
+          ami = nixos-generators.nixosGenerate {
+        system = "x86_64-linux";
+        format = "amazon";
+      };
         };
 
         devShells = {
           default = shared_shell;
         };
 
+        
+
+        
       });
 }
