@@ -31,7 +31,7 @@ def new_file_path(curr_filename: str) -> str:
     return filename + '(' + str(low) + ').' + ext
 
 
-def save_mcap_file(file: FileStorage) -> None:
+def save_mcap_file(file: FileStorage) -> str:
     if not file:
         raise ValueError('File does not exist')
     if not allowed_file(file.filename):
@@ -40,4 +40,8 @@ def save_mcap_file(file: FileStorage) -> None:
     if file and allowed_file(file.filename):
         if not os.path.isdir(UPLOAD_FOLDER):
             os.mkdir(UPLOAD_FOLDER)
-        file.save(os.path.join(UPLOAD_FOLDER, new_file_path(file.filename)))
+        path_to_file: str = os.path.join(UPLOAD_FOLDER, new_file_path(file.filename))
+        file.save(path_to_file)
+
+        return path_to_file
+    return ""
