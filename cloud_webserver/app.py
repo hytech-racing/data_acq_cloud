@@ -26,6 +26,7 @@ demo_collection = db['data']
 meta_data_collection: Collection[Mapping[str, Any]] = db['metadata']
 car_setup_collection: Collection[Mapping[str, Any]] = db['car_setup']
 
+
 # Add data to MongoDB route 
 @app.route('/add_data', methods=['POST']) 
 def add_data() -> str:
@@ -53,7 +54,9 @@ def save_mcap() -> str:
 
 				db.save_metadata(path_to_file,
 								 meta_data_collection,
-								 car_setup_collection)
+								 car_setup_collection,
+								 meta_data,
+								 car_setup)
 		except ValueError as e:
 			return 'fail: ' + str(e)
 

@@ -1,11 +1,17 @@
+import typing
 from typing import Mapping, Any
 
 from flask import Flask, request
 from pymongo import MongoClient
 from pymongo.collection import Collection
 def save_metadata(path_to_file: str,
-                  meta_data_collection: Collection[Mapping[str, Any]],
-                  car_setup_collection: Collection[Mapping[str, Any]]) -> None:
+                  metadata_collection: Collection[Mapping[str, Any]],
+                  car_setup_collection: Collection[Mapping[str, Any]],
+                  metadata,
+                  car_setup) -> None:
+    insert_metadata_collection = metadata_collection.insert_one(metadata)
+    insert_car_setup_collection = car_setup_collection.insert_one(car_setup)
+
     pass
 
 
