@@ -41,6 +41,24 @@ mongosh mongodb://admin:password@localhost:27017/
     - `show collections` to see the collections that have been written to
     - `db.<insert-collection-name-here>.find()` to list all data in specific collection
 
+## Setting Up EC2 Instance
+In terminal run:
+- export NIXPKGS_ALLOW_UNFREE=1
+- nix shell nixpkgs#ec2_api_tools --impure
+- ec2-run-instances -O AWS-ACCESS-KEY  -W AWS-SECRET-KEY --region us-east-1 ami-0c463a64 -k jason-key-pair
+
+If you want to change the AMI version, check here: https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/virtualisation/amazon-ec2-amis.nix (for some reason 14.04 doesn’t work)
+
+The AWS access keys can be found in IAM. Key pairs can be added through the EC2 dashboard on AWS. 
+
+## To connect to the EC2 Instance
+
+ssh -i "/path/to/your-key-pair.pem" root@ec2-44-204-90-124.compute-1.amazonaws.com
+
+Make sure you’ve run: chmod 400 /path/to/your-key-pair.pem
+
+If you get this error: sign_and_send_pubkey: no mutual signature supported, check out this stack overflow post: https://stackoverflow.com/a/74258486 
+
 ### data acquisition data flow
 ```mermaid
 
