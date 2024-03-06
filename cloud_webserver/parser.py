@@ -41,6 +41,7 @@ class MCAPHandler():
 
                 for key, val in self.avg_pressures.items():
                     if self.pressure_count[key] != 0:
+                        # The metadata for a mcap file takes a dict[str: str]
                         self.avg_pressures[key] = str(self.avg_pressures[key] / self.pressure_count[key])
             except mcap.exceptions.EndOfFile:
                 print("Reached End of File")
@@ -51,8 +52,9 @@ class MCAPHandler():
         base, extension = os.path.splitext(self.mcap_file_path)
         base += "_V2"
 
-
         with open(base + extension, "wb") as f, Writer(f) as mcap_writer:
+            # Rewriting all the messages from the original file into the new file.
+            # This is because mcap files don't provide an easy way to edit files other than rewriting them
             with open(self.mcap_file_path, "rb") as stream_reader:
                 reader = make_reader(stream_reader, decoder_factories=[DecoderFactory()])
                 for schema, channel, message, proto_msg in reader.iter_decoded_messages():
@@ -61,6 +63,8 @@ class MCAPHandler():
                                               log_time=message.log_time,
                                               publish_time=message.publish_time)
 
+            # mcap_protobuf.writer is a higher-level abstraction of the mcap_writer class
+            # So we have to access add_metadata through _writer
             mcap_writer._writer.add_metadata("TTPMS_P_AVG", self.avg_pressures)
             mcap_writer.finish()
 
