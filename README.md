@@ -48,8 +48,9 @@ In terminal run:
 - ec2-run-instances -O AWS-ACCESS-KEY  -W AWS-SECRET-KEY --region us-east-1 ami-0c463a64 -k jason-key-pair
 
 If you want to change the AMI version, check here: https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/virtualisation/amazon-ec2-amis.nix (for some reason 14.04 doesn’t work)
-
+Make sure you change the security group of the EC2 instance so that it allows connections from any IP address
 The AWS access keys can be found in IAM. Key pairs can be added through the EC2 dashboard on AWS. 
+**TODO:** modify ec2-run-instance command to start a t2.micro instance type so we can stay in the ec2 free tier
 
 ## To connect to the EC2 Instance
 
