@@ -45,11 +45,13 @@ mongosh mongodb://admin:password@localhost:27017/
 In terminal run:
 - export NIXPKGS_ALLOW_UNFREE=1
 - nix shell nixpkgs#ec2_api_tools --impure
-- ec2-run-instances -O AWS-ACCESS-KEY  -W AWS-SECRET-KEY --region us-east-1 ami-0c463a64 -k jason-key-pair -t t2.micro
+- ec2-run-instances -O AWS-ACCESS-KEY  -W AWS-SECRET-KEY --region us-east-1 ami-0c463a64 -k jason-key-pair -t t2.micro --block-device-mapping /dev/xvda=:32 
+
 
 If you want to change the AMI version, check here: https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/virtualisation/amazon-ec2-amis.nix (for some reason 14.04 doesn’t work)
 Make sure you change the security group of the EC2 instance so that it allows connections from any IP address
 The AWS access keys can be found in IAM. Key pairs can be added through the EC2 dashboard on AWS. 
+32 can be replaced with the desired size of the EBS volume in Gib
 
 
 ## To connect to the EC2 Instance
