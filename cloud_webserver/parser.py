@@ -13,9 +13,10 @@ class MCAPHandler():
         self.avg_pressures = {"lf_ttpms_1": 0, "rf_ttpms_1": 0, "lr_ttpms_1": 0, "rr_ttpms_1": 0}
         self.pressure_count = {"lf_ttpms_1": 0, "rf_ttpms_1": 0, "lr_ttpms_1": 0, "rr_ttpms_1": 0}
         self.channel_ids = {"lf_ttpms_1": -1, "rf_ttpms_1": -1, "lr_ttpms_1": -1, "rr_ttpms_1": -1}
+        self.metadata_obj = {}
 
+    # Reads all the tire pressures
     def parse_tire_pressure(self) -> dict[str: str]:
-
         with open(self.mcap_file_path, "rb") as stream:
             reader = make_reader(stream, decoder_factories=[DecoderFactory()])
             try:
@@ -48,7 +49,7 @@ class MCAPHandler():
 
             return self.avg_pressures
 
-    def add_pressures_to_mcap(self):
+    def write_and_parse_metadata(self):
         base, extension = os.path.splitext(self.mcap_file_path)
         base += "_V2"
 
@@ -63,12 +64,23 @@ class MCAPHandler():
                                               log_time=message.log_time,
                                               publish_time=message.publish_time)
 
+                    # Read the metadata to store in the database
+
             # mcap_protobuf.writer is a higher-level abstraction of the mcap_writer class
             # So we have to access add_metadata through _writer
+
             mcap_writer._writer.add_metadata("TTPMS_P_AVG", self.avg_pressures)
+
+            self.metadata_obj["TTPMS_P_AVG"] = self.avg_pressures
+
+            for metadata in reader.iter_metadata():
+                m_name = getattr(metadata, 'name')
+                m_data = getattr(metadata, 'metadata')
+                self.metadata_obj[m_name] = m_data
+
             mcap_writer.finish()
 
-
-handler = MCAPHandler("mcap_files/03_05_2024_23_10_23.mcap")
-pressures = handler.parse_tire_pressure()
-handler.add_pressures_to_mcap()
+handler = MCAPHandler("mcap_files/03_05_2024_23_10_23_V2.mcap")
+# pressures = handler.parse_mcap_file()
+# handler.add_pressures_to_mcap()
+handler.read_metadata()

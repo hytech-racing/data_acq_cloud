@@ -4,15 +4,46 @@ from typing import Mapping, Any
 from flask import Flask, request
 from pymongo import MongoClient
 from pymongo.collection import Collection
+import uuid
+
 def save_metadata(path_to_file: str,
                   metadata_collection: Collection[Mapping[str, Any]],
                   car_setup_collection: Collection[Mapping[str, Any]],
-                  metadata,
-                  car_setup) -> None:
-    insert_metadata_collection = metadata_collection.insert_one(metadata)
-    insert_car_setup_collection = car_setup_collection.insert_one(car_setup)
+                  metadata) -> None:
+    # insert_metadata_collection = metadata_collection.insert_one(metadata)
 
-    pass
+
+
+    # TODO: handle path to mcap and matlab files, also figure out what we should query
+
+
+    # Edit this whenever the front-end (data_acq/py_data_acq/py_data_acq/web_server/mcap_server.py) adds/edits/deletes what kind of metadata is processed
+    run_setup = {
+        'driver': metadata['driver'],
+        'track_name': metadata['trackName'],
+        'event_type': metadata['eventType']
+    }
+
+    car_setup = {
+        'drivetrain_type': metadata['drivetrainType'],
+        'mass': convert_to_floats(metadata['mass']),
+        'wheelbase': convert_to_floats(metadata['wheelbase']),
+        'firmware_rev': metadata['firmwareRev']
+    }
+
+    car_setup_records = car_setup_collection.find({}, car_setup)
+    car_setup_id = None
+    if car_setup_records >= 1:
+        car_setup_id = car_setup_records[0]['car_setup_id']
+    else:
+        car_setup_id = str(uuid.uuid4())
+
+    run_setup['car_setup_id'] = car_setup_id
+    car_setup['_id'] = car_setup_id
+
+    metadata_collection.insert_one(run_setup)
+    car_setup_collection.insert_one(car_setup)
+
 
 
 # The code snippet below iterates through a dictionary, checks if any of the
