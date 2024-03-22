@@ -216,6 +216,7 @@
             };
             users.users.nixos.openssh.authorizedKeys.keys = [
               # your own SSH public key.
+              # Jason
               "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC8NWlt5zLQzQbAQ/IYOAcSmwxBUCzwL+iE5yZBQQWNa43ny+aLTKyZsb8S4gywuRT9/pqJELOzGBEKVaoW08tSy48U2/8fkLbJEwRQKIdb3cmvc6xu9dridVHVeETMULwGq99YaFhRDtUAI/d+tsseqGupmDV+/XgVP9UKN3jpa21fmpCNUn3z3lbbPdjRLLbdvphS/PTHAIBsgFxHQ7GAlBO0WhC39pEyyoWrQD+ip7r8iFUg5Tjd/hTH0zJPojZ/kC8DSxjyEQfX3zsJ//PZzf7p7gtbUSAAFNeMe7CKC0Y3ThnBaM/CKTnjH9tqmqTI6BYMaiawnm6ZwsM3oAb3ZpIR7vnhkr45jKzpKZJogid5cVdNLnTBoPd/I9nB0z/F79L9CQ8vFeag7Py0TxQJUvdXcxAVlgpyFEfsMCnf3VJDW1afLfc/dxhSyUyVqqEU1qCdzB6oKUHNgKv7RI2yzNyKEuh9HOVVn/4b/xDua4MYacYVYwKD60IPA4hgXzc= home@lawn-128-61-50-84.lawn.gatech.edu"
             ];
           };
