@@ -79,8 +79,3 @@ class MCAPHandler():
                 self.metadata_obj[m_name] = m_data
 
             mcap_writer.finish()
-
-handler = MCAPHandler("mcap_files/03_05_2024_23_10_23_V2.mcap")
-# pressures = handler.parse_mcap_file()
-# handler.add_pressures_to_mcap()
-handler.read_metadata()
