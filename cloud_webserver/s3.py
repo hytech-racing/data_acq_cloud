@@ -3,10 +3,10 @@ import boto3
 
 
 class S3Client:
-    def __init__(self, region_name: str, bucket: str):
+    def __init__(self, bucket: str):
         self.s3_client = boto3.client(
             service_name='s3',
-            region_name=region_name,
+            region_name=os.getenv('REGION_NAME'),
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
             aws_secret_access_key=os.getenv('AWS_PRIVATE_ACCESS_KEY')
         )

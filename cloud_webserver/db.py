@@ -6,16 +6,17 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 import uuid
 
-def save_metadata(path_to_file: str,
-                  run_collection: Collection[Mapping[str, Any]],
-                  metadata) -> None:
+def save_metadata(run_collection: Collection[Mapping[str, Any]],
+                  path_to_mcap_file: str,
+                  document_id: str,
+                  metadata: dict[str:str]) -> None:
     # insert_metadata_collection = metadata_collection.insert_one(metadata)
 
     # TODO: handle path to mcap and matlab files, also figure out what we should query
 
     # Edit this whenever the front-end (data_acq/py_data_acq/py_data_acq/web_server/mcap_server.py) adds/edits/deletes what kind of metadata is processed
     run_data = {
-        '_id': str(uuid.uuid4()),
+        '_id': document_id,
         'driver': metadata['driver'],
         'track_name': metadata['trackName'],
         'event_type': metadata['eventType'],
@@ -23,6 +24,7 @@ def save_metadata(path_to_file: str,
         'mass': convert_to_floats(metadata['mass']),
         'wheelbase': convert_to_floats(metadata['wheelbase']),
         'firmware_rev': metadata['firmwareRev'],
+        'path_to_mcap_file': path_to_mcap_file
     }
 
     run_collection.insert_one(run_data)
