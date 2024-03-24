@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   my_service:
-    image: MongoDB
+    image: mongo
     ports:
       - "27017:27017"
     environment:
