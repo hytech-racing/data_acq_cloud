@@ -64,18 +64,19 @@ class MCAPHandler():
                                               log_time=message.log_time,
                                               publish_time=message.publish_time)
 
+                    for metadata in reader.iter_metadata():
+                        m_name = getattr(metadata, 'name')
+                        m_data = getattr(metadata, 'metadata')
+                        self.metadata_obj[m_name] = m_data
+
                     # Read the metadata to store in the database
 
             # mcap_protobuf.writer is a higher-level abstraction of the mcap_writer class
             # So we have to access add_metadata through _writer
 
-            mcap_writer._writer.add_metadata("TTPMS_P_AVG", self.avg_pressures)
-
             self.metadata_obj["TTPMS_P_AVG"] = self.avg_pressures
 
-            for metadata in reader.iter_metadata():
-                m_name = getattr(metadata, 'name')
-                m_data = getattr(metadata, 'metadata')
-                self.metadata_obj[m_name] = m_data
+            for name, values in self.metadata_obj.items():
+                mcap_writer._writer.add_metadata(name, values)
 
             mcap_writer.finish()
