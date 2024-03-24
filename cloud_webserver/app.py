@@ -9,7 +9,7 @@ from werkzeug.datastructures import FileStorage
 from dotenv import load_dotenv
 import upload
 import db
-from cloud_webserver.parser import MCAPHandler
+from cloud_webserver.mcap_handler import MCAPHandler
 from cloud_webserver.s3 import S3Client
 from datetime import date
 
