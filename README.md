@@ -41,18 +41,17 @@ mongosh mongodb://admin:password@localhost:27017/
     - `show collections` to see the collections that have been written to
     - `db.<insert-collection-name-here>.find()` to list all data in specific collection
 
-## Setting Up EC2 Instance
+### AWS Database Setup
+## Starting Up EC2 Instance
 In terminal run:
 - export NIXPKGS_ALLOW_UNFREE=1
 - nix shell nixpkgs#ec2_api_tools --impure
 - ec2-run-instances -O AWS-ACCESS-KEY  -W AWS-SECRET-KEY --region us-east-1 ami-0c463a64 -k jason-key-pair -t t2.micro --block-device-mapping /dev/xvda=:32 
 
-
 If you want to change the AMI version, check here: https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/virtualisation/amazon-ec2-amis.nix (for some reason 14.04 doesn’t work)
 Make sure you change the security group of the EC2 instance so that it allows connections from any IP address
 The AWS access keys can be found in IAM. Key pairs can be added through the EC2 dashboard on AWS. 
 32 can be replaced with the desired size of the EBS volume in Gib
-
 
 ## To connect to the EC2 Instance
 
@@ -61,6 +60,25 @@ ssh -i "/path/to/your-key-pair.pem" root@ec2-44-204-90-124.compute-1.amazonaws.c
 Make sure you’ve run: chmod 400 /path/to/your-key-pair.pem
 
 If you get this error: sign_and_send_pubkey: no mutual signature supported, check out this stack overflow post: https://stackoverflow.com/a/74258486 
+
+## Seeting up EC2 Instance
+In terminal run: 
+- nix shell nixpkgs#nixos-rebuild \\enter nix shell with nixos-rebuild
+- export NIX_SSHOPTS=' -i /path/to/your/keypair.pem'  \\set a global variable with the key so that you have authentication access
+- nixos-rebuild switch --fast --flake /path/to/flakedirectory#default  --target-host root@ec2ipaddress@amazonaws.com --build-host ec2ipaddress@amazonaws.com --option eval-cache false \\this command builds the flake on the ec2
+- ssh into the ec2 and run: `docker run -d \ 
+  -p 27017:27017 \
+  -e MONGO_INITDB_ROOT_USERNAME=username \
+  -e MONGO_INITDB_ROOT_PASSWORD=password \
+  -v metadata_volume:/meta_data \
+  -v car_setup:/car_data \
+  --name my_service \
+  mongo'
+  \\this command sets up the docker container with mongo runing
+- in a terminal outside of the ec2:
+- mongosh mongodb://username:password@ec2-ip-address.compute-1.amazonaws.com \\connect to mongo using the connection string
+- use hytechDB // sets up database hytechDB
+
 
 ### data acquisition data flow
 ```mermaid
