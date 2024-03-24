@@ -1,11 +1,9 @@
 import os
 import uuid
 from typing import Mapping, Any
-
 from flask import Flask, request, Response
 from pymongo import MongoClient
 from pymongo.collection import Collection
-from werkzeug.datastructures import FileStorage
 from dotenv import load_dotenv
 import upload
 import db
@@ -24,37 +22,23 @@ def hello_world() -> str:
 
 
 # Set up MongoDB connection and collection
-db_client = MongoClient('mongodb://localhost:27017/')
+db_client = MongoClient(os.environ.get('DB_URL'))
 
-# Create database named demo if they don't exist already 
-db = db_client['demo']
+# Create database named demo if they don't exist already
+hytech_database = db_client['hytechDB']
 
-# Create collection named data if it doesn't exist already 
-demo_collection = db['data']
-run_data_collection: Collection[Mapping[str, Any]] = db['run_data']
-
-
-# Add data to MongoDB route 
-@app.route('/add_data', methods=['POST'])
-def add_data() -> str:
-    # Get data from request
-    data = request.json
-
-    # Insert data into MongoDB
-    demo_collection.insert_one(data)
-
-    return 'Data added to MongoDB'
-
+# Create collection named data if it doesn't exist already
+run_data_collection: Collection[Mapping[str, Any]] = hytech_database['run_data']
 
 @app.route('/test-streaming', methods=['GET'])
 def test_streaming() -> Response:
-    s3 = S3Client('us-east-1', 'run-metadata')
+    s3 = S3Client('us-east-1')
     obj = s3.get_signed_url("03_05_2024/run_mcap.mcap")
 
     return obj
 
 
-@app.route('/save_mcap', methods=['POST'])
+@app.route('/save_run', methods=['POST'])
 def save_mcap() -> str:
     if 'file' in request.files:
         try:
@@ -64,26 +48,28 @@ def save_mcap() -> str:
 
                 metadata_id = str(uuid.uuid4())
 
-                s3 = S3Client(path_to_mcap_file)
+                mcap_handler = MCAPHandler(path_to_mcap_file)
+                mcap_handler.parse_tire_pressure()
+                mcap_handler.write_and_parse_metadata()
+
+                s3 = S3Client()
 
                 curr_date = date.today()
                 formatted_date = curr_date.strftime("%m-%d-%Y")
 
-                s3.upload_file(bucket_name=os.getenv('BUCKET_NAME'),
-                               file_path=path_to_mcap_file,
-                               object_path=f'{formatted_date}/{file.name}.mcap')
+                object_path = f"{formatted_date}/{file.filename}"
 
-                handler = MCAPHandler(path_to_mcap_file)
-                handler.parse_tire_pressure()
-                handler.write_and_parse_metadata()
+                s3.upload_file(file_path=path_to_mcap_file,
+                               object_path=object_path)
+
 
                 # Need to access and parse the mcap file
                 # Once we know what data is in the mcap file, we can begin to parse it
 
                 db.save_metadata(run_data_collection,
-                                 path_to_mcap_file,
+                                 object_path,
                                  metadata_id,
-                                 handler.metadata_obj)
+                                 mcap_handler.metadata_obj)
         except ValueError as e:
             return 'fail: ' + str(e)
 
