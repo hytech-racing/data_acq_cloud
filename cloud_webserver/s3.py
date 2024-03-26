@@ -14,13 +14,15 @@ class S3Client:
             aws_secret_access_key=aws_secret_access_key
         )
 
-
         self.bucket = os.getenv('BUCKET_NAME')
 
     def upload_file(self, file_path: str, object_path: str):
         self.s3_client.upload_file(file_path, self.bucket, object_path)
 
     def get_signed_url(self, obj_path: str):
+        if obj_path is None or obj_path == '':
+            return ""
+
         obj = self.s3_client.generate_presigned_url('get_object',
                                                     Params={'Bucket': self.bucket,
                                                             'Key': obj_path},
