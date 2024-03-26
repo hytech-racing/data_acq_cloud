@@ -1,4 +1,5 @@
 import os
+import typing
 import uuid
 from typing import Mapping, Any
 from flask import Flask, request, Response
@@ -76,6 +77,11 @@ def save_mcap() -> str:
         return 'success'
     return 'fail: no file provided'
 
+
+@app.route('/get_runs', methods=['GET'])
+def get_runs() -> typing.List[typing.Dict[str, typing.Any]]:
+    get_runs_response: typing.List[typing.Dict[str, typing.Any]] = db.query_runs(run_data_collection, {})
+    return get_runs_response
 
 if __name__ == '__main__':
     app.run()
