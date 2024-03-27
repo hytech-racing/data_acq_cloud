@@ -4,7 +4,7 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
 UPLOAD_FOLDER: str = 'mcap_files'
-ALLOWED_EXTENSIONS = {'txt', 'mcap'} # txt is just for testing, remove later
+ALLOWED_EXTENSIONS = {'txt', 'mcap', 'mat'} # txt is just for testing, remove later
 
 
 def allowed_file(filename: str) -> bool:

@@ -8,9 +8,10 @@ from pymongo.collection import Collection
 from dotenv import load_dotenv
 import upload
 import db
-from cloud_webserver.mcap_handler import MCAPHandler
-from cloud_webserver.s3 import S3Client
+from mcap_handler import MCAPHandler
+from s3 import S3Client
 from datetime import date
+import mcap_files.mcap_to_mat as mcap_to_mats
 
 app = Flask(__name__)
 
@@ -45,6 +46,7 @@ def save_mcap() -> str:
         try:
             file = request.files['file']
             path_to_mcap_file: str = upload.save_mcap_file(file)
+            
             if path_to_mcap_file != "":
 
                 metadata_id = str(uuid.uuid4())
@@ -52,6 +54,9 @@ def save_mcap() -> str:
                 mcap_handler = MCAPHandler(path_to_mcap_file)
                 mcap_handler.parse_tire_pressure()
                 mcap_handler.write_and_parse_metadata()
+
+                #path_to_mat_file: str = mcap_to_mats.parser(path_to_mcap_file)
+                
 
                 s3 = S3Client()
 
