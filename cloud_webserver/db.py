@@ -6,6 +6,7 @@ import s3
 
 def save_metadata(run_collection: Collection[Mapping[str, Any]],
                   path_to_mcap_file: str,
+                  path_to_matlab_file: str,
                   document_id: str,
                   metadata: dict[str:str]) -> None:
     # TODO: handle path to matlab files, also figure out what we should query
@@ -23,7 +24,8 @@ def save_metadata(run_collection: Collection[Mapping[str, Any]],
         'mass': metadata['setup']['mass'],
         'wheelbase': metadata['setup']['wheelbase'],
         'firmware_rev': metadata['setup']['firmwareRev'],
-        'mcap_object_path': path_to_mcap_file
+        'mcap_object_path': path_to_mcap_file,
+        'matlab_object_path': path_to_matlab_file
     }
 
     run_collection.insert_one(run_data)
