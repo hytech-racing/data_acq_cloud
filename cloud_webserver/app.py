@@ -55,8 +55,7 @@ def save_mcap() -> str:
                 mcap_handler.parse_tire_pressure()
                 mcap_handler.write_and_parse_metadata()
 
-                #path_to_mat_file: str = mcap_to_mats.parser(path_to_mcap_file)
-                
+                path_to_mat_file: str = mcap_to_mats.parser(path_to_mcap_file)
 
                 s3 = S3Client()
 

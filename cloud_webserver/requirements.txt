@@ -11,11 +11,13 @@ lz4==4.3.3
 MarkupSafe==2.1.5
 mcap==1.1.1
 mcap-protobuf-support==0.4.1
+numpy==1.26.4
 protobuf==5.26.0
 pymongo==4.6.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 s3transfer==0.10.1
+scipy==1.12.0
 six==1.16.0
 typing==3.7.4.3
 urllib3==2.2.1

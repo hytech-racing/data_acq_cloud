@@ -1,7 +1,5 @@
-import sys
 from pathlib import Path
 from mcap.reader import make_reader
-from mcap_protobuf.reader import read_protobuf_messages
 from mcap_protobuf.decoder import DecoderFactory
 from scipy.io import savemat
  
@@ -33,5 +31,3 @@ def parser(input):
         out_name = f"mcap_files/{Path(input).stem}"
         savemat(out_name+".mat", mdict, long_field_names=True)
         return out_name+".mat"
-if __name__ == "__main__":
-    main()
