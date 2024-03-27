@@ -8,8 +8,8 @@ from pymongo.collection import Collection
 from dotenv import load_dotenv
 import upload
 import db
-from cloud_webserver.mcap_handler import MCAPHandler
-from cloud_webserver.s3 import S3Client
+from mcap_handler import MCAPHandler
+from s3 import S3Client
 from datetime import date
 
 app = Flask(__name__)
@@ -58,17 +58,19 @@ def save_mcap() -> str:
                 curr_date = date.today()
                 formatted_date = curr_date.strftime("%m-%d-%Y")
 
-                object_path = f"{formatted_date}/{file.filename}"
+                mcap_object_path = f"{formatted_date}/{file.filename}"
 
                 s3.upload_file(file_path=path_to_mcap_file,
-                               object_path=object_path)
+                               object_path=mcap_object_path)
 
+                matlab_object_path = ""
 
                 # Need to access and parse the mcap file
                 # Once we know what data is in the mcap file, we can begin to parse it
 
                 db.save_metadata(run_data_collection,
-                                 object_path,
+                                 mcap_object_path,
+                                 matlab_object_path,
                                  metadata_id,
                                  mcap_handler.metadata_obj)
         except ValueError as e:
@@ -78,10 +80,20 @@ def save_mcap() -> str:
     return 'fail: no file provided'
 
 
-@app.route('/get_runs', methods=['GET'])
-def get_runs() -> typing.List[typing.Dict[str, typing.Any]]:
-    get_runs_response: typing.List[typing.Dict[str, typing.Any]] = db.query_runs(run_data_collection, {})
+@app.route('/get_runs', methods=['POST'])
+def get_runs() -> str | typing.List[typing.Dict[str, typing.Any]]:
+
+    query = {}
+
+    # Not worrying about random people sending random values to the server
+    # because only the base station will access this because this will be on a secure vpn only we can access
+    for key, value in request.form.items():
+        query[key] = value
+
+    get_runs_response: typing.List[typing.Dict[str, typing.Any]] = db.query_runs(run_data_collection, query)
+
     return get_runs_response
+
 
 if __name__ == '__main__':
     app.run()
