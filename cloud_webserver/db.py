@@ -11,6 +11,7 @@ def save_metadata(run_collection: Collection[Mapping[str, Any]],
                   metadata: dict[str:str]) -> None:
     # TODO: handle path to matlab files, also figure out what we should query
 
+    print(metadata)
     convert_to_floats(metadata['setup'])
 
     # Edit this whenever the front-end (data_acq/py_data_acq/py_data_acq/web_server/mcap_server.py) adds/edits/deletes what kind of metadata is processed
