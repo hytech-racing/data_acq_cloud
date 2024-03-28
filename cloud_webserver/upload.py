@@ -3,8 +3,8 @@ from flask import Flask, flash, request, redirect, url_for
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
-UPLOAD_FOLDER: str = 'mcap_files'
-ALLOWED_EXTENSIONS = {'txt', 'mcap', 'mat'} # txt is just for testing, remove later
+UPLOAD_FOLDER: str = 'files'
+ALLOWED_EXTENSIONS = {'mcap', 'mat'}
 
 
 def allowed_file(filename: str) -> bool:

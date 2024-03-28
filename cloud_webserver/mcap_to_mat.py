@@ -27,7 +27,8 @@ def parser(input):
                 
             mdict[topic] = msg_dict
         mdict = {"data": mdict}
- 
-        out_name = f"mcap_files/{Path(input).stem}"
+
+        file_name = Path(input).stem
+        out_name = f"files/{file_name}"
         savemat(out_name+".mat", mdict, long_field_names=True)
-        return out_name+".mat"
+        return f"{file_name}.mat"
