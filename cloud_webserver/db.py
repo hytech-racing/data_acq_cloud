@@ -8,10 +8,9 @@ def save_metadata(run_collection: Collection[Mapping[str, Any]],
                   path_to_mcap_file: str,
                   path_to_matlab_file: str,
                   document_id: str,
-                  metadata: dict[str:str]) -> None:
+                  metadata: dict[str:str]) -> dict[str: Any]:
     # TODO: handle path to matlab files, also figure out what we should query
 
-    print(metadata)
     convert_to_floats(metadata['setup'])
 
     # Edit this whenever the front-end (data_acq/py_data_acq/py_data_acq/web_server/mcap_server.py) adds/edits/deletes what kind of metadata is processed
@@ -31,9 +30,11 @@ def save_metadata(run_collection: Collection[Mapping[str, Any]],
 
     run_collection.insert_one(run_data)
 
+    return run_data
 
-def query_runs(run_collection: Collection[Mapping[str, Any]], fields: typing.Dict) -> typing.List[typing.Dict[str, Any]]:
 
+def query_runs(run_collection: Collection[Mapping[str, Any]], fields: typing.Dict) -> typing.List[
+    typing.Dict[str, Any]]:
     s3_client = s3.S3Client()
 
     run_metadata: typing.List[typing.Dict] = list(run_collection.find(fields, {}))
