@@ -12,7 +12,7 @@ function App() {
   const handleDateChange = (date) => {
     setSelectedDate(date);
   };
-
+  //handles button click
   const handleButtonClick = async () => {
     if (!selectedDate) {
       console.error('No date selected.');
@@ -21,33 +21,33 @@ function App() {
   
     // Format selected date into "mm-dd-yyyy" format
     const formattedDate = `${selectedDate.getMonth() + 1}-${selectedDate.getDate()}-${selectedDate.getFullYear()}`;
-  
+    //Just for testing:
     console.log('Selected date:', formattedDate);
-  
+    //http post protocol
     try {
       const response = await fetch(`${serverAddress}/get_runs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ date: formattedDate }), // Send formatted date
+        body: JSON.stringify({ date: formattedDate }), // date as field
       });
   
       if (!response.ok) {
         throw new Error('Failed to fetch runs');
       }
-  
+      //returns all the needed data
       const runsData = await response.json();
   
       const mcapFiles = [];
       const matFiles = [];
-  
+      //Put the download links in an arr
       for (let index = 0; index < runsData.length; index++) {
         const element = runsData[index];
         mcapFiles.push(element.mcap_download_link);
         matFiles.push(element.matlab_download_link);
       }
-  
+      
       setMcapDateFiles(mcapFiles);
       setMatDateFiles(matFiles);
     } catch (error) {
