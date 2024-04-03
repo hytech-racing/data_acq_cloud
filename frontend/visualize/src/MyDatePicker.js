@@ -1,20 +1,16 @@
-import React, { useState, useRef } from 'react';
+import React from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
-function MyDatePicker() {
-  const [selectedDate, setSelectedDate] = useState(null);
-  const selectedDateRef = useRef(null); // Create a ref
-
+const MyDatePicker = ({ selectedDate, onDateChange }) => {
   const handleDateChange = date => {
-    setSelectedDate(date);
+    onDateChange(date); // Call the parent component's function to update state
   };
 
   return (
     <div>
       <h2>Date Picker Example</h2>
       <DatePicker
-        ref={selectedDateRef} // Assign the ref here
         selected={selectedDate}
         onChange={handleDateChange}
         dateFormat="dd/MM/yyyy"
