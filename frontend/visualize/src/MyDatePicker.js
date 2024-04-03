@@ -13,7 +13,7 @@ const MyDatePicker = ({ selectedDate, onDateChange }) => {
       <DatePicker
         selected={selectedDate}
         onChange={handleDateChange}
-        dateFormat="dd/MM/yyyy"
+        dateFormat="MM/dd/yyyy"
         placeholderText="Select a date"
       />
     </div>
