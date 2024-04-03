@@ -9,7 +9,7 @@ const MyDatePicker = ({ selectedDate, onDateChange }) => {
 
   return (
     <div>
-      <h2>Date Picker Example</h2>
+      <h2>Date Picker</h2>
       <DatePicker
         selected={selectedDate}
         onChange={handleDateChange}
