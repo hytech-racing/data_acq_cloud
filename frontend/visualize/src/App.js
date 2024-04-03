@@ -20,7 +20,8 @@ function App() {
     }
   
     // Format selected date into "mm-dd-yyyy" format
-    const formattedDate = `${selectedDate.getMonth() + 1}-${selectedDate.getDate()}-${selectedDate.getFullYear()}`;
+    const formattedDate = `${(selectedDate.getMonth() + 1).toString().padStart(2, '0')}-${selectedDate.getDate().toString().padStart(2, '0')}-${selectedDate.getFullYear()}`;
+
     //Just for testing:
     console.log('Selected date:', formattedDate);
     //http post protocol
