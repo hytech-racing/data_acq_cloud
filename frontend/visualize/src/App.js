@@ -58,19 +58,21 @@ function App() {
     <div className="App">
       <MyDatePicker selectedDate={selectedDate} onDateChange={handleDateChange} />
       <button onClick={handleButtonClick}>Get Selected Date</button>
-
-      {/* Render MCAP and MATLAB download links */}
-      <div>
-        <h3>MCAP Files:</h3>
-        {mcapDateFiles.map((link, index) => (
-          <a key={index} href={link} target="_blank" rel="noopener noreferrer">{link}</a>
-        ))}
-      </div>
-      <div>
-        <h3>MATLAB Files:</h3>
-        {matDateFiles.map((link, index) => (
-          <a key={index} href={link} target="_blank" rel="noopener noreferrer">{link}</a>
-        ))}
+      <br></br>
+      <div className='ParentTable'>
+        {/* Render MCAP and MATLAB download links */}
+        <div className='McapChild'>
+          <h3>MCAP Files:</h3>
+          {mcapDateFiles.map((link, index) => (
+            <a key={index} href={link} target="_blank" rel="noopener noreferrer">{link}</a>
+          ))}
+        </div>
+        <div className='MatChild'>
+          <h3>MATLAB Files:</h3>
+          {matDateFiles.map((link, index) => (
+            <a key={index} href={link} target="_blank" rel="noopener noreferrer">{link}</a>
+          ))}
+        </div>
       </div>
     </div>
   );

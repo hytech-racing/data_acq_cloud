@@ -36,3 +36,16 @@
     transform: rotate(360deg);
   }
 }
+
+.ParentTable {
+  display: inline-flex;
+}
+
+.McapChild {
+  width: 100px;
+  height: 100px;
+}
+.MatChild {
+  width: 100px;
+  height: 100px;
+}
