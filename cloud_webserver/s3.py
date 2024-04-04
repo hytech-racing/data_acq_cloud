@@ -1,6 +1,7 @@
+import logging
 import os
 import boto3
-
+from botocore.exceptions import ClientError
 
 class S3Client:
     def __init__(self):
@@ -29,3 +30,16 @@ class S3Client:
                                                     ExpiresIn=3600)
 
         return obj
+
+    def object_exists(self, obj_path: str) -> bool:
+        try:
+            self.s3_client.head_object(Bucket=self.bucket, Key=obj_path)
+            return True
+        except ClientError as e:
+            error_code: int = int(e.response['Error']['Code'])
+
+            if error_code == 404:
+                return False
+            else:
+                logging.error("Failed to check if object exists: ", e.response['Error']['Message'])
+                return False
