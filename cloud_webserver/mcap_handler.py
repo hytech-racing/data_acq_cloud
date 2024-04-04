@@ -108,3 +108,16 @@ class MCAPHandler():
             mcap_writer.finish()
 
         return base + extension
+
+    def get_date(self) -> str | None:
+        with open(self.mcap_file_path, "rb") as stream_reader:
+            reader = make_reader(stream_reader, decoder_factories=[DecoderFactory()])
+
+            for metadata in reader.iter_metadata():
+                if getattr(metadata, 'name') == "setup":
+                    metadata = getattr(metadata, 'metadata')
+                    if "date" in metadata:
+                        return metadata["date"]
+                    break
+
+        return None

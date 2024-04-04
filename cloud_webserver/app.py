@@ -11,6 +11,7 @@ from pymongo.collection import Collection
 from dotenv import load_dotenv
 import upload
 import db
+from cloud_webserver import mcap_handler
 from mcap_handler import MCAPHandler
 from s3 import S3Client
 import mcap_to_mat as mcap_to_mats
@@ -98,6 +99,24 @@ def get_runs() -> str | typing.List[typing.Dict[str, typing.Any]]:
 
     return get_runs_response
 
+# This route uses multipart/form-data to maintain consistency among the current routes in the server
+@app.route('/get_offloaded_mcaps', methods=['POST'])
+def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
+    s3 = S3Client()
+
+    mcap_offloaded_status: typing.Dict[str: typing.List[str]] = {"offloaded": [], "not_offloaded": []}
+
+    for _, file_name in request.form.items():
+        mcap_date = file_name[0: 10]
+        mcap_date = mcap_date.replace("_", "-")
+        print(mcap_date)
+        offloaded: bool = s3.object_exists(f"{mcap_date}/{file_name}")
+        if offloaded:
+            mcap_offloaded_status["offloaded"].append(file_name)
+        else:
+            mcap_offloaded_status["not_offloaded"].append(file_name)
+
+    return mcap_offloaded_status
 
 if __name__ == '__main__':
     app.run()
