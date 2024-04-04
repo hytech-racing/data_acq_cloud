@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import time
 import typing
 import uuid
 from typing import Mapping, Any
@@ -47,8 +48,9 @@ def save_mcap() -> Response:
             metadata_id = str(uuid.uuid4())
 
             mcap_handler = MCAPHandler(path_to_mcap_file)
+            mcap_handler.prepare_mcap()
             mcap_handler.parse_tire_pressure()
-            mcap_handler.write_and_parse_metadata()
+            path_to_mcap_file = mcap_handler.write_and_parse_metadata()
 
             mat_file_name = mcap_to_mats.parser(path_to_mcap_file)
             path_to_mat_file: str = f"files/{mat_file_name}"
