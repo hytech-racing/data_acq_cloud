@@ -11,7 +11,6 @@ from pymongo.collection import Collection
 from dotenv import load_dotenv
 import upload
 import db
-from cloud_webserver import mcap_handler
 from mcap_handler import MCAPHandler
 from s3 import S3Client
 import mcap_to_mat as mcap_to_mats
