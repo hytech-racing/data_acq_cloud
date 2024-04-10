@@ -15,6 +15,7 @@ import mcap_handler
 from mcap_handler import MCAPHandler
 from s3 import S3Client
 import mcap_to_mat as mcap_to_mats
+#from waitress import serve
 
 app = Flask(__name__)
 
@@ -122,5 +123,10 @@ def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
 
     return mcap_offloaded_status
 
+def create_app():
+    return app
+
 if __name__ == '__main__':
+    #serve(app, host="0.0.0.0", port=8080) 
     app.run()
+

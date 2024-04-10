@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy the rest of the application code
 COPY . /app
-COPY .env /app/.env
+COPY ../.env /app/.env
 
 # Run your application
-CMD ["python", "app.py"]
+CMD ["waitress-serve", "--port=8080", "--call", "app:create_app"]
