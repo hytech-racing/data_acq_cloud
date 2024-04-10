@@ -15,11 +15,10 @@ import mcap_handler
 from mcap_handler import MCAPHandler
 from s3 import S3Client
 import mcap_to_mat as mcap_to_mats
-#from waitress import serve
 
 app = Flask(__name__)
 
-load_dotenv(dotenv_path="../.env")
+load_dotenv(dotenv_path=".env")
 
 
 # root route
