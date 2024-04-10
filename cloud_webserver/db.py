@@ -8,7 +8,7 @@ def save_metadata(run_collection: Collection[Mapping[str, Any]],
                   path_to_mcap_file: str,
                   path_to_matlab_file: str,
                   document_id: str,
-                  metadata: dict[str:str]) -> dict[str: Any]:
+                  metadata: dict[str, Any]) -> dict[str, Any]:
     # TODO: handle path to matlab files, also figure out what we should query
 
     convert_to_floats(metadata['setup'])
