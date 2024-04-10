@@ -6,6 +6,8 @@ from mcap_protobuf.decoder import DecoderFactory
 from mcap.reader import make_reader
 from mcap_protobuf.writer import Writer
 import subprocess
+from mcap.records import McapRecord
+import typing
 
 
 class MCAPHandler():
@@ -33,17 +35,20 @@ class MCAPHandler():
         try:
             self.message_count = int(split_response[1])
         except ValueError:
-            logging.log("Could not parse mcap recovery output")
+            logging.log(level=1, msg="Could not parse mcap recovery output")
 
         self.mcap_file_path = new_file_path
 
     # Reads all the tire pressures
-    def parse_tire_pressure(self) -> dict[str: str]:
+    def parse_tire_pressure(self) -> typing.Dict[str, str]:
         with open(self.mcap_file_path, "rb") as stream:
             reader = make_reader(stream, decoder_factories=[DecoderFactory()])
             try:
                 message_count = 0
+                schema: McapRecord | None
                 for schema, channel, message, proto_msg in reader.iter_decoded_messages():
+                    if schema is None:
+                        continue
                     print(str(message_count) + "/" + str(self.message_count))
                     message_count += 1
                     if message_count == self.message_count:
@@ -57,23 +62,23 @@ class MCAPHandler():
                     if not proto_msg_fields[2][0].name.endswith("TTPMS_P"):
                         for field in proto_msg.ListFields():
                             if field[0].name.endswith("TTPMS_P"):
-                                self.avg_pressures[schema.name] += float(field[1])
+                                self.avg_pressures[schema.name] = str(float(self.avg_pressures[schema.name]) +  float(field[1]))
                                 self.pressure_count[schema.name] += 1
                                 self.channel_ids[schema.name] = channel.id
                                 break
                     else:
-                        self.avg_pressures[schema.name] += float(proto_msg_fields[2][1])
+                        self.avg_pressures[schema.name] = str(float(self.avg_pressures[schema.name]) + float(proto_msg_fields[2][1]))
                         self.pressure_count[schema.name] += 1
                         self.channel_ids[schema.name] = channel.id
 
-                for key, val in self.avg_pressures.items():
+                for key, _ in self.avg_pressures.items():
                     if self.pressure_count[key] != 0:
                         # The metadata for a mcap file takes a dict[str: str]
-                        self.avg_pressures[key] = str(self.avg_pressures[key] / self.pressure_count[key])
+                        self.avg_pressures[key] = str(float(self.avg_pressures[key]) / self.pressure_count[key])
             except mcap.exceptions.EndOfFile:
                 print("Reached End of File")
 
-            return self.avg_pressures
+        return self.avg_pressures
 
     def write_and_parse_metadata(self) -> str:
         base, extension = os.path.splitext(self.mcap_file_path)
