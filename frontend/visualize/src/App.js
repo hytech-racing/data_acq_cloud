@@ -41,7 +41,7 @@ function App() {
       // Handle error (e.g., show error message to the user)
     }
   }
-
+  
   const handleButtonClick = async () => {
     if (!selectedDate) {
       console.error('No date selected.');
@@ -51,7 +51,7 @@ function App() {
     const formattedDate = `${(selectedDate.getMonth() + 1).toString().padStart(2, '0')}-${selectedDate.getDate().toString().padStart(2, '0')}-${selectedDate.getFullYear()}`;
     console.log('Selected date:', formattedDate);
 
-    /** 
+    
     try {
       const formData = new FormData();
       formData.append('date', formattedDate);
@@ -82,15 +82,18 @@ function App() {
       console.error('Error fetching runs:', error.message);
       // Handle error (e.g., show error message to the user)
     }
-    */
+    
     //TESTING WITH LINKS CUZ RN BACKEND IS NOT WORKING
     //Uncomment top and delete bottom
+
+    /** 
     const mcapFiles = [];
     const matFiles = [];
     mcapFiles.push("https://run-metadata.s3.amazonaws.com/03-26-2024/03_05_2024_23_10_23_V123.mcap?AWSAccessKeyId=AKIA4HTQXVTTEN6PEIUS&Signature=yDv3whWWO%2FtXmmQZhP3XwiIGT30%3D&Expires=1712890495");
     matFiles.push("https://run-metadata.s3.amazonaws.com/03-26-2024/03_05_2024_23_10_23_V123.mat?AWSAccessKeyId=AKIA4HTQXVTTEN6PEIUS&Signature=ofvYjdbMaekGQvWsHzXk6siUsyc%3D&Expires=1712890515");
     setMcapDateFiles(mcapFiles);
     setMatDateFiles(matFiles);
+    */
   };
   
   // Function to extract substring from the URL
