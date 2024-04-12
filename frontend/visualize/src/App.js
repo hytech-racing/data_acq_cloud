@@ -6,7 +6,8 @@ import MyDatePicker from './MyDatePicker';
 function App() {
   const [mcapDateFiles, setMcapDateFiles] = useState([]);
   const [matDateFiles, setMatDateFiles] = useState([]);
-  const serverAddress = 'http://127.0.0.1:5000';
+  //might need to change this
+  const serverAddress = 'http://54.243.4.174:8080';
   const [selectedDate, setSelectedDate] = useState(null);
 
   const handleDateChange = (date) => {
@@ -14,24 +15,28 @@ function App() {
   };
   const seeAll = async () => {
     try {
-
+      const formData = new FormData();
       const response = await fetch(`${serverAddress}/get_runs`, {
         method: 'POST',
+        headers: {
+          "content-type": "multipart/form-data"
+        },
       });
-  
+      console.log(response);
+      
       if (!response.ok) {
         throw new Error('Failed to fetch runs');
       }
       
       const runsData = await response.json();
-  
+      
       const mcapFiles = [];
       const matFiles = [];
       
       for (let index = 0; index < runsData.length; index++) {
         const element = runsData[index];
-        mcapFiles.push(element.mcap_download_link);
-        matFiles.push(element.matlab_download_link);
+        mcapFiles.push(element['mcap_download_link']);
+        matFiles.push(element['matlab_download_link']);
       }
       
       setMcapDateFiles(mcapFiles);
@@ -72,8 +77,8 @@ function App() {
       
       for (let index = 0; index < runsData.length; index++) {
         const element = runsData[index];
-        mcapFiles.push(element.mcap_download_link);
-        matFiles.push(element.matlab_download_link);
+        mcapFiles.push(element['mcap_download_link']);
+        matFiles.push(element['matlab_download_link']);
       }
       
       setMcapDateFiles(mcapFiles);
