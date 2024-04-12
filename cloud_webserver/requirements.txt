@@ -21,5 +21,6 @@ scipy==1.12.0
 six==1.16.0
 typing==3.7.4.3
 urllib3==2.2.1
+waitress==3.0.0
 Werkzeug==3.0.1
 zstandard==0.22.0

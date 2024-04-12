@@ -11,14 +11,14 @@ from pymongo.collection import Collection
 from dotenv import load_dotenv
 import upload
 import db
+import mcap_handler
 from mcap_handler import MCAPHandler
 from s3 import S3Client
 import mcap_to_mat as mcap_to_mats
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})  # Allow requests from http://localhost:3000
-load_dotenv(dotenv_path="../.env")
+
+load_dotenv(dotenv_path=".env")
 
 
 # root route
@@ -57,7 +57,8 @@ def save_mcap() -> Response:
             path_to_mat_file: str = f"files/{mat_file_name}"
 
             s3 = S3Client()
-
+            
+            print(mcap_handler.metadata_obj)
             formatted_date: str = mcap_handler.metadata_obj['setup']['date']
 
             mcap_object_path: str = f"{formatted_date}/{file.filename}"
@@ -65,11 +66,14 @@ def save_mcap() -> Response:
             s3.upload_file(file_path=path_to_mcap_file,
                            object_path=mcap_object_path)
 
+            print("upladed mcap")
+
             matlab_object_path: str = f"{formatted_date}/{mat_file_name}"
 
             s3.upload_file(file_path=path_to_mat_file,
                            object_path=matlab_object_path)
-
+            
+            print("uploaded matlab")
             # Need to access and parse the mcap file
             # Once we know what data is in the mcap file, we can begin to parse it
 
@@ -118,5 +122,10 @@ def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
 
     return mcap_offloaded_status
 
+def create_app():
+    return app
+
 if __name__ == '__main__':
+    #serve(app, host="0.0.0.0", port=8080) 
     app.run()
+
