@@ -15,8 +15,16 @@ import mcap_handler
 from mcap_handler import MCAPHandler
 from s3 import S3Client
 import mcap_to_mat as mcap_to_mats
+import asyncio
+from celery import Celery
+from tasks import task
 
 app = Flask(__name__)
+app.config['CELERY_BROKER_URL'] = 'redis://localhost:6379/0'
+app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
+
+celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
+celery.conf.update(app.config)
 
 load_dotenv(dotenv_path=".env")
 
@@ -121,6 +129,11 @@ def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
             mcap_offloaded_status["not_offloaded"].append(file_name)
 
     return mcap_offloaded_status
+
+@app.route('/random', methods=['GET'])
+def random() -> str:
+    task.delay()
+    return 'true'
 
 def create_app():
     return app
