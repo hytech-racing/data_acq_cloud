@@ -49,7 +49,6 @@ class MCAPHandler():
                 for schema, channel, message, proto_msg in reader.iter_decoded_messages():
                     if schema is None:
                         continue
-                    print(str(message_count) + "/" + str(self.message_count))
                     message_count += 1
                     if message_count == self.message_count:
                         break
@@ -76,7 +75,8 @@ class MCAPHandler():
                         # The metadata for a mcap file takes a dict[str: str]
                         self.avg_pressures[key] = str(float(self.avg_pressures[key]) / self.pressure_count[key])
             except mcap.exceptions.EndOfFile:
-                print("Reached End of File")
+                #print("Reached End of File")
+                pass
 
         return self.avg_pressures
 
@@ -106,7 +106,6 @@ class MCAPHandler():
             # So we have to access add_metadata through _writer
 
             self.metadata_obj["TTPMS_P_AVG"] = self.avg_pressures
-            print(self.metadata_obj)
             for name, values in self.metadata_obj.items():
                 mcap_writer._writer.add_metadata(name, values)
 

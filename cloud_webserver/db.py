@@ -33,9 +33,14 @@ def save_metadata(run_collection: Collection[Mapping[str, Any]],
     return run_data
 
 
-def query_runs(run_collection: Collection[Mapping[str, Any]], fields: typing.Dict) -> typing.List[
+def query_runs(run_collection: Collection[Mapping[str, Any]],
+               fields: typing.Dict,
+               aws_region: str,
+               aws_access_key: str,
+               aws_secret_access_key: str,
+               aws_bucket: str) -> typing.List[
     typing.Dict[str, Any]]:
-    s3_client = s3.S3Client()
+    s3_client = s3.S3Client(aws_region, aws_access_key, aws_secret_access_key, aws_bucket)
 
     run_metadata: typing.List[typing.Dict] = list(run_collection.find(fields, {}))
 
