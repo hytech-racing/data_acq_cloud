@@ -4,20 +4,16 @@ import shutil
 import time
 import typing
 import uuid
-from typing import Mapping, Any
-from flask import Flask, request, Response
+from typing import Mapping, Any, Dict
+from flask import Flask, jsonify, request, Response
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from dotenv import load_dotenv
 import upload
 import db
-import mcap_handler
-from mcap_handler import MCAPHandler
 from s3 import S3Client
-import mcap_to_mat as mcap_to_mats
-import asyncio
 from celery import Celery
-from tasks import task
+from tasks import process_mcap
 
 app = Flask(__name__)
 app.config['CELERY_BROKER_URL'] = 'redis://localhost:6379/0'
@@ -27,7 +23,10 @@ celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
 celery.conf.update(app.config)
 
 load_dotenv(dotenv_path=".env")
-
+AWS_REGION = os.getenv('REGION_NAME')
+AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
+AWS_PRIVATE_ACCESS_KEY = os.getenv('AWS_PRIVATE_ACCESS_KEY')
+AWS_BUCKET = os.getenv('BUCKET_NAME')
 
 # root route
 @app.route('/')
@@ -35,8 +34,10 @@ def hello_world() -> str:
     return 'Hello, World!'
 
 
+DB_URL = os.environ.get('DB_URL')
+
 # Set up MongoDB connection and collection
-db_client = MongoClient(os.environ.get('DB_URL'))
+db_client = MongoClient(DB_URL)
 
 # Create database named demo if they don't exist already
 hytech_database = db_client['hytechDB']
@@ -52,50 +53,19 @@ def save_mcap() -> Response:
     try:
         file = request.files['file']
         path_to_mcap_file: str = upload.save_mcap_file(file)
+        process_mcap.apply_async(args=[file.filename,
+                                       path_to_mcap_file,
+                                       DB_URL,
+                                       AWS_REGION,
+                                       AWS_ACCESS_KEY,
+                                       AWS_PRIVATE_ACCESS_KEY,
+                                       AWS_BUCKET])
 
-        if path_to_mcap_file != "":
-            metadata_id = str(uuid.uuid4())
 
-            mcap_handler = MCAPHandler(path_to_mcap_file)
-            mcap_handler.prepare_mcap()
-            mcap_handler.parse_tire_pressure()
-            path_to_mcap_file = mcap_handler.write_and_parse_metadata()
-
-            mat_file_name = mcap_to_mats.parser(path_to_mcap_file)
-            path_to_mat_file: str = f"files/{mat_file_name}"
-
-            s3 = S3Client()
-            
-            print(mcap_handler.metadata_obj)
-            formatted_date: str = mcap_handler.metadata_obj['setup']['date']
-
-            mcap_object_path: str = f"{formatted_date}/{file.filename}"
-
-            s3.upload_file(file_path=path_to_mcap_file,
-                           object_path=mcap_object_path)
-
-            print("upladed mcap")
-
-            matlab_object_path: str = f"{formatted_date}/{mat_file_name}"
-
-            s3.upload_file(file_path=path_to_mat_file,
-                           object_path=matlab_object_path)
-            
-            print("uploaded matlab")
-            # Need to access and parse the mcap file
-            # Once we know what data is in the mcap file, we can begin to parse it
-
-            return_obj = db.save_metadata(run_data_collection,
-                                          mcap_object_path,
-                                          matlab_object_path,
-                                          metadata_id,
-                                          mcap_handler.metadata_obj)
-
-            shutil.rmtree("files")
     except ValueError as e:
         return Response('fail: ' + str(e), status=500)
 
-    return Response(json.dumps(return_obj), status=200, mimetype="application/json")
+    return Response('bruh', status=200, mimetype="application/json")
 
 
 @app.route('/get_runs', methods=['POST'])
@@ -107,21 +77,26 @@ def get_runs() -> str | typing.List[typing.Dict[str, typing.Any]]:
     for key, value in request.form.items():
         query[key] = value
 
-    get_runs_response: typing.List[typing.Dict[str, typing.Any]] = db.query_runs(run_data_collection, query)
+    get_runs_response: typing.List[typing.Dict[str, typing.Any]] = db.query_runs(run_data_collection,
+                                                                                 query,
+                                                                                 AWS_REGION,
+                                                                                 AWS_ACCESS_KEY,
+                                                                                 AWS_PRIVATE_ACCESS_KEY,
+                                                                                 AWS_BUCKET)
 
     return get_runs_response
+
 
 # This route uses multipart/form-data to maintain consistency among the current routes in the server
 @app.route('/get_offloaded_mcaps', methods=['POST'])
 def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
-    s3 = S3Client()
+    s3 = S3Client(AWS_REGION, AWS_ACCESS_KEY, AWS_PRIVATE_ACCESS_KEY, AWS_BUCKET)
 
     mcap_offloaded_status: typing.Dict[str: typing.List[str]] = {"offloaded": [], "not_offloaded": []}
 
     for _, file_name in request.form.items():
         mcap_date = file_name[0: 10]
         mcap_date = mcap_date.replace("_", "-")
-        print(mcap_date)
         offloaded: bool = s3.object_exists(f"{mcap_date}/{file_name}")
         if offloaded:
             mcap_offloaded_status["offloaded"].append(file_name)
@@ -130,15 +105,10 @@ def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
 
     return mcap_offloaded_status
 
-@app.route('/random', methods=['GET'])
-def random() -> str:
-    task.delay()
-    return 'true'
-
 def create_app():
     return app
+
 
 if __name__ == '__main__':
     #serve(app, host="0.0.0.0", port=8080) 
     app.run()
-
