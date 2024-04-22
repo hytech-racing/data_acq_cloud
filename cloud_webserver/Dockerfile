@@ -1,7 +1,12 @@
-FROM python:3.11.8
+FROM python:3.11.8 AS builder
 
-# Copy requirements file
-COPY requirements.txt /app/requirements.txt
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Runtime stage
 
 WORKDIR /app
 
@@ -12,5 +17,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY . /app
 COPY .env /app/.env
 
-# Run your application
-CMD ["waitress-serve", "--port=8080", "--call", "app:create_app"]
+# Run application
+RUN chmod +x /app/bin/start.sh
+CMD ["./bin/start.sh"]

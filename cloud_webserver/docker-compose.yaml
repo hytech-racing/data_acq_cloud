@@ -1,0 +1,18 @@
+services:
+  flask:
+    dns:
+      - 8.8.8.8
+      - 4.4.4.4
+      - 192.168.9.45
+    networks:
+      - server_net
+    build: .
+    ports:
+      - "8080:8080"
+  redis:
+    image: "redis:alpine"
+    networks:
+      - server_net
+networks:
+  server_net:
+    driver: bridge

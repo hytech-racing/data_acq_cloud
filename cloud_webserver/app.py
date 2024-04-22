@@ -1,9 +1,6 @@
 import json
 import os
-import shutil
-import time
 import typing
-import uuid
 from typing import Mapping, Any, Dict
 from flask import Flask, jsonify, request, Response
 from pymongo import MongoClient
@@ -16,8 +13,8 @@ from celery import Celery
 from tasks import process_mcap
 
 app = Flask(__name__)
-app.config['CELERY_BROKER_URL'] = 'redis://localhost:6379/0'
-app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
+app.config['CELERY_BROKER_URL'] = 'redis://redis:6379'
+app.config['CELERY_RESULT_BACKEND'] = 'redis://redis:6379'
 
 celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
 celery.conf.update(app.config)
@@ -65,7 +62,9 @@ def save_mcap() -> Response:
     except ValueError as e:
         return Response('fail: ' + str(e), status=500)
 
-    return Response('bruh', status=200, mimetype="application/json")
+    response = {'message': 'processing mcap'}
+    json_response = json.dumps(response)
+    return Response(json_response, status=200, mimetype="application/json")
 
 
 @app.route('/get_runs', methods=['POST'])
@@ -106,9 +105,14 @@ def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
     return mcap_offloaded_status
 
 def create_app():
+    print(AWS_REGION)
+    print(AWS_ACCESS_KEY)
+
     return app
 
 
 if __name__ == '__main__':
-    #serve(app, host="0.0.0.0", port=8080) 
-    app.run()
+    #serve(app, host="0.0.0.0", port=8080)
+    print(AWS_REGION)
+    print(AWS_ACCESS_KEY)
+    app.run(host='0.0.0.0')
