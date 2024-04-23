@@ -45,10 +45,10 @@ def process_mcap(file_name: str,
         metadata_id = str(uuid.uuid4())
 
         mcap_handler = MCAPHandler(path_to_uploaded_mcap)
-        mcap_handler.prepare_mcap()
+        # Front end will handle this instead.
+        # mcap_handler.prepare_mcap()
         mcap_handler.parse_tire_pressure()
         path_to_mcap_file = mcap_handler.write_and_parse_metadata()
-        logger.info('path to mcap file  ' + path_to_mcap_file)
     except Exception as e:
         logger.error('could not parse the mcap file: ' + str(e))
         return

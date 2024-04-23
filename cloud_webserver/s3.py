@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=".env")
 
+
 class S3Client:
     def __init__(self,
                  region_name: str,
