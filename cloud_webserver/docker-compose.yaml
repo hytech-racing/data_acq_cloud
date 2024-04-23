@@ -9,8 +9,17 @@ services:
     build: .
     ports:
       - "8080:8080"
+    environment:
+      REGION_NAME: "${REGION_NAME}"
+      AWS_ACCESS_KEY: "${AWS_ACCESS_KEY}"
+      AWS_PRIVATE_ACCESS_KEY: "${AWS_PRIVATE_ACCESS_KEY}"
+      DB_URL: "${DB_URL}"
+      DB_USERNAME: "${DB_USERNAME}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      BUCKET_NAME: "${BUCKET_NAME}"
+      REDIS_URL: "${REDIS_URL}"
   redis:
-    image: "redis:alpine"
+    image: "redis:7.2.4-alpine3.19"
     networks:
       - server_net
 networks:

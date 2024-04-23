@@ -13,13 +13,12 @@ from celery import Celery
 from tasks import process_mcap
 
 app = Flask(__name__)
-app.config['CELERY_BROKER_URL'] = 'redis://redis:6379'
-app.config['CELERY_RESULT_BACKEND'] = 'redis://redis:6379'
+app.config['CELERY_BROKER_URL'] = os.getenv('REDIS_URL', 'redis://redis:6379')
+app.config['CELERY_RESULT_BACKEND'] = os.getenv('REDIS_URL', 'redis://redis:6379')
 
 celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
 celery.conf.update(app.config)
 
-load_dotenv(dotenv_path=".env")
 AWS_REGION = os.getenv('REGION_NAME')
 AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
 AWS_PRIVATE_ACCESS_KEY = os.getenv('AWS_PRIVATE_ACCESS_KEY')
