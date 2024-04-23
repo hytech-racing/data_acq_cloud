@@ -1,7 +1,7 @@
 import json
 import os
 import typing
-from typing import Mapping, Any, Dict
+from typing import Mapping, Any, Dict, List
 from flask import Flask, jsonify, request, Response
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -24,6 +24,7 @@ AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
 AWS_PRIVATE_ACCESS_KEY = os.getenv('AWS_PRIVATE_ACCESS_KEY')
 AWS_BUCKET = os.getenv('BUCKET_NAME')
 
+
 # root route
 @app.route('/')
 def hello_world() -> str:
@@ -40,6 +41,7 @@ hytech_database = db_client['hytechDB']
 
 # Create collection named data if it doesn't exist already
 run_data_collection: Collection[Mapping[str, Any]] = hytech_database['run_data']
+
 
 @app.route('/save_run', methods=['POST'])
 def save_mcap() -> Response:
@@ -86,13 +88,18 @@ def get_runs() -> str | typing.List[typing.Dict[str, typing.Any]]:
 
 
 # This route uses multipart/form-data to maintain consistency among the current routes in the server
-@app.route('/get_offloaded_mcaps', methods=['POST'])
-def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
+@app.route('/get_offloaded_mcaps', methods=['GET'])
+def get_offloaded_mcaps() -> Response | dict[str, list[Any]]:
     s3 = S3Client(AWS_REGION, AWS_ACCESS_KEY, AWS_PRIVATE_ACCESS_KEY, AWS_BUCKET)
+
+    if 'file' not in request.args:
+        response = {'message': 'No parameters provided'}
+        json_response = json.dumps(response)
+        return Response(json_response, status=400, mimetype="application/json")
 
     mcap_offloaded_status: typing.Dict[str: typing.List[str]] = {"offloaded": [], "not_offloaded": []}
 
-    for _, file_name in request.form.items():
+    for file_name in request.args.getlist('file'):
         mcap_date = file_name[0: 10]
         mcap_date = mcap_date.replace("_", "-")
         offloaded: bool = s3.object_exists(f"{mcap_date}/{file_name}")
@@ -102,6 +109,7 @@ def get_offloaded_mcaps() -> str | typing.List[typing.Dict[str, typing.Any]]:
             mcap_offloaded_status["not_offloaded"].append(file_name)
 
     return mcap_offloaded_status
+
 
 def create_app():
     print(AWS_REGION)

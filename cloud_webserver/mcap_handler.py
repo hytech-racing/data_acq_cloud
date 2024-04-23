@@ -124,4 +124,4 @@ class MCAPHandler():
                         return metadata["date"]
                     break
 
-        return None
+        return self.mcap_file_path[0:10].replace("_", "-")
