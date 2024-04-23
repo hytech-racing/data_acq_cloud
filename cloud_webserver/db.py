@@ -11,22 +11,19 @@ def save_metadata(run_collection: Collection[Mapping[str, Any]],
                   metadata: dict[str, Any]) -> dict[str, Any]:
     # TODO: handle path to matlab files, also figure out what we should query
 
-    convert_to_floats(metadata['setup'])
-
-    # Edit this whenever the front-end (data_acq/py_data_acq/py_data_acq/web_server/mcap_server.py) adds/edits/deletes what kind of metadata is processed
     run_data = {
         '_id': document_id,
-        'date': metadata['setup']['date'],
-        'driver': metadata['setup']['driver'],
-        'track_name': metadata['setup']['trackName'],
-        'event_type': metadata['setup']['eventType'],
-        'drivetrain_type': metadata['setup']['drivetrainType'],
-        'mass': metadata['setup']['mass'],
-        'wheelbase': metadata['setup']['wheelbase'],
-        'firmware_rev': metadata['setup']['firmwareRev'],
         'mcap_object_path': path_to_mcap_file,
         'matlab_object_path': path_to_matlab_file
     }
+
+    for key, val in metadata.items():
+        if key == 'setup':
+            convert_to_floats(metadata['setup'])
+            for setup_key, setup_val in val.items():
+                run_data[setup_key] = setup_val
+        else:
+            run_data[key] = val
 
     run_collection.insert_one(run_data)
 
