@@ -7,8 +7,11 @@ function App() {
   //Files list
   const [mcapDateFiles, setMcapDateFiles] = useState([]);
   const [matDateFiles, setMatDateFiles] = useState([]);
-  //might need to change this
+
+  //might need to change the serverAddress later
   const serverAddress = 'http://54.243.4.174:8080';
+
+  
   const [selectedDate, setSelectedDate] = useState(null);
 
   //http post request handler
