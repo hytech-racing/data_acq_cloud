@@ -4,12 +4,14 @@ import './App.css';
 import MyDatePicker from './MyDatePicker';
 
 function App() {
+  //Files list
   const [mcapDateFiles, setMcapDateFiles] = useState([]);
   const [matDateFiles, setMatDateFiles] = useState([]);
   //might need to change this
   const serverAddress = 'http://54.243.4.174:8080';
   const [selectedDate, setSelectedDate] = useState(null);
 
+  //http post request handler
   const handleDateChange = (date) => {
     setSelectedDate(date);
   };
@@ -46,7 +48,7 @@ function App() {
       // Handle error (e.g., show error message to the user)
     }
   }
-  
+  //same thing but for all dates I think
   const handleButtonClick = async () => {
     if (!selectedDate) {
       console.error('No date selected.');
@@ -88,17 +90,6 @@ function App() {
       // Handle error (e.g., show error message to the user)
     }
     
-    //TESTING WITH LINKS CUZ RN BACKEND IS NOT WORKING
-    //Uncomment top and delete bottom
-
-    /** 
-    const mcapFiles = [];
-    const matFiles = [];
-    mcapFiles.push("https://run-metadata.s3.amazonaws.com/03-26-2024/03_05_2024_23_10_23_V123.mcap?AWSAccessKeyId=AKIA4HTQXVTTEN6PEIUS&Signature=yDv3whWWO%2FtXmmQZhP3XwiIGT30%3D&Expires=1712890495");
-    matFiles.push("https://run-metadata.s3.amazonaws.com/03-26-2024/03_05_2024_23_10_23_V123.mat?AWSAccessKeyId=AKIA4HTQXVTTEN6PEIUS&Signature=ofvYjdbMaekGQvWsHzXk6siUsyc%3D&Expires=1712890515");
-    setMcapDateFiles(mcapFiles);
-    setMatDateFiles(matFiles);
-    */
   };
   
   // Function to extract substring from the URL
