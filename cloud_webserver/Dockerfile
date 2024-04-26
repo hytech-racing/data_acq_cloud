@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy the rest of the application code
 COPY . /app
-COPY .env /app/.env
+COPY env/.env /app/.env
 
 # Run application
 RUN chmod +x /app/bin/start.sh

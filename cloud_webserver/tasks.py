@@ -66,8 +66,8 @@ def process_mcap(file_name: str,
                       aws_secret_access_key=aws_secret_access_key,
                       aws_bucket=aws_bucket)
 
-        # print(mcap_handler.metadata_obj)
-        formatted_date: str = mcap_handler.metadata_obj['setup']['date']
+        # Date/Time format is going to be the same for all files
+        formatted_date: str = file_name[0: 10].replace('_', '')
 
         mcap_object_path: str = f"{formatted_date}/{file_name}"
 

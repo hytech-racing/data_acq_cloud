@@ -4,7 +4,7 @@ import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=".env")
+load_dotenv(dotenv_path="env/.env")
 
 
 class S3Client:
