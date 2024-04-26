@@ -102,9 +102,15 @@ function App() {
 
   return (
     <div className="App">
-      <MyDatePicker selectedDate={selectedDate} onDateChange={handleDateChange} />
-      <button onClick={handleButtonClick}>Get Selected Date</button>
-      <button onClick={seeAll}>See All</button>
+      <header className='label'>HyTech Racing</header>
+      <div className='buttons'>
+        <div className='DateContainer'>
+          <MyDatePicker selectedDate={selectedDate} onDateChange={handleDateChange} />
+          <br></br>
+          <button className="GetDateBtn" onClick={handleButtonClick}>Get Selected Date</button>
+        </div>
+        <button className="SeeAllBtn" onClick={seeAll}>See All</button>
+      </div>
       <br></br>
       <div className='ParentTable'>
         {/* Render MCAP and MATLAB download links */}
