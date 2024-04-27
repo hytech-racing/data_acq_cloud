@@ -97,7 +97,7 @@ function App() {
   
   // Function to extract substring from the URL
   const getLinkName = (link) => {
-    return link.substring(39, 48); // Extract characters from index 39 to 48
+    return link.substring(49, 69); // Extract characters from index 39 to 48
   };
 
   return (
@@ -117,13 +117,13 @@ function App() {
         <div className='McapChild'>
           <h3>MCAP Files:</h3>
           {mcapDateFiles.map((link, index) => (
-            <a key={index} href={link} target="_blank" rel="noopener noreferrer">{getLinkName(link)}</a> // Change here
+            <a className="mcaps" key={index} href={link} target="_blank" rel="noopener noreferrer">{getLinkName(link)}</a> // Change here
           ))}
         </div>
         <div className='MatChild'>
           <h3>MATLAB Files:</h3>
           {matDateFiles.map((link, index) => (
-            <a key={index} href={link} target="_blank" rel="noopener noreferrer">{getLinkName(link)}</a> // Change here
+            <a className="mats" key={index} href={link} target="_blank" rel="noopener noreferrer">{getLinkName(link)}</a> // Change here
           ))}
         </div>
       </div>
