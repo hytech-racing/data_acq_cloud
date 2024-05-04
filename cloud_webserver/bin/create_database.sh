@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# Get the directory path of the script
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 docker run -d \
   -p 27017:27017 \
@@ -12,4 +14,9 @@ docker run -d \
 
 sleep 3
 
-docker exec -it local_hytechdb mongosh --username username --password password --eval "use hytechDB;" --eval "db.createCollection('run_data')"
+
+source "$DIR/../venv/bin/activate"
+
+python3 "$DIR/populate_database.py"
+
+deactivate
