@@ -4,4 +4,6 @@
 echo "Building Docker images..."
 docker compose --profile $1 up --build -d
 
-docker start local_hytechdb
+if [ "$1" == "dev" ]; then
+  docker start local_hytechdb
+fi

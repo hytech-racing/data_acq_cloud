@@ -4,7 +4,9 @@
 echo "Shutting down the docker images..."
 docker compose --profile $1 down
 
-docker stop local_hytechdb
+if [ $1 == "dev" ]; then
+  docker stop local_hytechdb
+fi
 
 # Step 2: Prune old Docker images
 echo "Pruning old Docker images..."
