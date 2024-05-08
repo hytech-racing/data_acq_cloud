@@ -1,17 +1,64 @@
 version: '3.8'
 
 services:
-  my_service:
-    image: mongo
+  flask-prod:
+    profiles: ["prod"]
+    dns:
+      - 8.8.8.8
+      - 4.4.4.4
+      - 192.168.9.45
+    networks:
+      - server_net
+    build:
+      context: ../cloud_webserver
+      dockerfile: Dockerfile
     ports:
-      - "27017:27017"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=username
-      - MONGO_INITDB_ROOT_PASSWORD=password
-    volumes:
-      - metadata_volume:/meta_data
-      - car_setup:/car_data
+      - "8080:8080"
+    env_file:
+      - ../cloud_webserver/env/.env.prod
+  flask-dev:
+    profiles: ["dev"]
+    dns:
+      - 8.8.8.8
+      - 4.4.4.4
+      - 192.168.9.45
+    networks:
+      - server_net
+    build:
+      context: ../cloud_webserver
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../cloud_webserver/env/.env.dev
+  redis:
+    profiles: ["dev", "prod"]
+    image: "redis:7.2.4-alpine3.19"
+    networks:
+      - server_net
+  frontend-dev:
+    profiles: ["dev"]
+    build:
+      context: ../frontend/visualize
+      dockerfile: dev.Dockerfile
+    networks:
+      - server_net
+    ports:
+      - "3000:3000"
+  frontend-prod:
+    profiles: ["prod"]
+    build:
+      context: ../frontend/visualize
+      dockerfile: prod.Dockerfile
+    networks:
+      - server_net
+    ports:
+      - "3000:3000"
 
 volumes:
   metadata_volume:
   car_setup:
+
+networks:
+  server_net:
+    driver: bridge
