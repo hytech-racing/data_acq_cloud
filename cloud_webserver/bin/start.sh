@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# Assumes a local redis server is running
+
 #start celery
 celery -A celery_app worker --loglevel=info &
 

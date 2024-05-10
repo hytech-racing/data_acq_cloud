@@ -11,8 +11,12 @@ import db
 from s3 import S3Client
 from celery import Celery
 from tasks import process_mcap
+from flask import Flask
+from flask_cors import CORS, cross_origin
 
 app = Flask(__name__)
+cors = CORS(app)
+app.config['CORS_HEADERS'] = 'Content-Type'
 app.config['CELERY_BROKER_URL'] = os.getenv('REDIS_URL', 'redis://redis:6379')
 app.config['CELERY_RESULT_BACKEND'] = os.getenv('REDIS_URL', 'redis://redis:6379')
 
