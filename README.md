@@ -57,31 +57,70 @@ The AWS access keys can be found in IAM. Key pairs can be added through the EC2 
 
 ## To connect to the EC2 Instance
 
-ssh -i "/path/to/your-key-pair.pem" root@ec2-44-204-90-124.compute-1.amazonaws.com
+ssh -i "/path/to/your-key-pair.pem" ubuntu@ec2-107-20-116-116.compute-1.amazonaws.com
 
 Make sure you’ve run: chmod 400 /path/to/your-key-pair.pem
 
 If you get this error: sign_and_send_pubkey: no mutual signature supported, check out this stack overflow post: https://stackoverflow.com/a/74258486 
 
-## Seeting up EC2 Instance
+## Setting up EC2 Instance
 In terminal run: 
-- nix shell nixpkgs#nixos-rebuild \\enter nix shell with nixos-rebuild
-- export NIX_SSHOPTS=' -i /path/to/your/keypair.pem'  \\set a global variable with the key so that you have authentication access
-- nixos-rebuild switch --fast --flake /path/to/flakedirectory#default  --target-host root@ec2ipaddress@amazonaws.com --build-host ec2ipaddress@amazonaws.com --option eval-cache false \\this command builds the flake on the ec2
-- ssh into the ec2 and run: `docker run -d \ 
-  -p 27017:27017 \
-  -e MONGO_INITDB_ROOT_USERNAME=username \
-  -e MONGO_INITDB_ROOT_PASSWORD=password \
-  -v metadata_volume:/meta_data \
-  -v car_setup:/car_data \
-  --name my_service \
-  mongo'
-  \\this command sets up the docker container with mongo runing
-- in a terminal outside of the ec2:
-- mongosh mongodb://username:password@ec2-ip-address.compute-1.amazonaws.com \\connect to mongo using the connection string
-- use hytechDB // sets up database hytechDB
+- `sudo apt-get update && apt-get upgrade`
+- `sudo apt install wireguard`
+- `sudo mkdir /etc/wireguard/`
+- `wg genkey | sudo tee /etc/wireguard/privatekey | wg pubkey | sudo tee /etc/wireguard/publickey`
+- `sudo nano /etc/wireguard/wg0.conf`
+
+In the configuration file, enter the settings:
+```
+[Interface]
+Address = 10.0.0.1/24
+SaveConfig = true
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+ListenPort = 51820
+PrivateKey = [private_key]
+```
+
+You can get the private key with entering `cat /etc/wireguard/privatekey` in the terminal
+
+Now run in the terminal:
+- `sudo systemctl enable wg-quick@wg0`
+- `sudo systemctl start wg-quick@wg0`
+- `echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.conf`
+- `sudo sysctl -p`
+
+To turn on the wireguard vpn, run `sudo wg-quick up wg0` and `sudo wg-quick save wg0`. \
+To turn off the wireguard vpn, run `sudo wg-quick down wg0`
+
+> **_NOTE:_** In order to actually have traffic flow through the vpn and port 51820, drop all security groups and set the new security group to `CloudWebServerSecurity`.
 
 
+## Adding yourself to the wireguard vpn
+
+ssh into the ec2 instance.
+
+List the config with `sudo cat /etc/wireguard/wg0.conf`. The latest peer added is the peer at the end of the file. Look at the allowed-ips for that peer. 
+
+Run in the terminal: `sudo wg set wg0 peer clientpublickey allowed-ips 10.0.0.[x]`. `[x]` is the latest peer's allowed-ips plus 1.
+
+**On your computer for Linux (if on windows use WSL)**
+Run in terminal:
+- `sudo mkdir /etc/wireguard/`
+- `wg genkey | sudo tee /etc/wireguard/privatekey | wg pubkey | sudo tee /etc/wireguard/publickey`
+- `sudo nano /etc/wireguard/wg0.conf` (replace wg0 with another name if you already have a wg0. It doesn't matter too much does reflect the change in the next commands).
+
+In the file, enter:
+```
+[Interface]
+PrivateKey = [your_privatekey] # Private key of your computer, can be found with sudo cat /etc/wireguard/privatekey
+Address = 10.0.0.[x]/24 # Whatever allowed-ips you set on the server
+
+[Peer]
+PublicKey = [publickey_server] # Public key of the server, can be found with sudo cat /etc/wireguard/publickey on the server
+Endpoint = 107.20.116.116:51820
+AllowedIPs = 0.0.0.0/0
+```
 ### data acquisition data flow
 ```mermaid
 
