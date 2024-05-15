@@ -22,7 +22,7 @@ def parser(input):
                     log_time = message.log_time / 1e9  # Convert nanoseconds to seconds
                     if first_log_time is None:
                         first_log_time = log_time  # Set the first log time
-                    signal_data = [log_time - first_log_time, getattr(proto_msg, name)]  # Subtract the first log time
+                    signal_data = [log_time - first_log_time, int ( getattr(proto_msg, name) )]  # Subtract the first log time
                     msg_dict[name].append(signal_data)
                 
             mdict[topic] = msg_dict
