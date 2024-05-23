@@ -6,6 +6,7 @@ from mcap.decoder import DecoderFactory
 from mcap.reader import make_reader
 from pymongo import MongoClient
 import uuid
+import time
 
 
 python_file_path: str = os.path.dirname(os.path.abspath(__file__))
@@ -18,6 +19,7 @@ load_dotenv(f"{os.getcwd()}/.env.dev")
 
 
 def connect_to_database(db_url: str) -> MongoClient:
+    print("Waiting for mongo to setup")
     return MongoClient(db_url, serverSelectionTimeoutMS=60000)  # May need to adjust the timeout if you can't connect
 
 def get_database_collection(db_client: MongoClient, collection: str):
@@ -46,21 +48,23 @@ def populate_database():
         aws_secret_access_key=aws_secret_access_key
     )
 
-    print(bucket)
+    print("Connected to s3 client")
+
     response = dict(s3_client.list_objects_v2(Bucket=bucket, Prefix='examples/', Delimiter='/'))
-    #print(response)
-    #print(response['KeyCount'])
+    print(f"Got all mcap files")
 
-    for content in response['Contents']:
+    for idx, content in enumerate(response['Contents']):
         if content['Key'] != 'examples/' and content['Key'].endswith('.mcap'):
-            metadata_obj: dict[str, str] = download_and_parse_mcap(s3_client, bucket, content['Key'])
+            metadata_obj: dict[str, str] = download_and_parse_mcap(s3_client, bucket, content['Key'], idx)
             runs_db.insert_one(metadata_obj)
+            print(f"inserted file {idx}")
 
-    # with tempfile.TemporaryFile(mode='w+b') as f:
-    #     s3_client.download_fileobj(bucket, 'mykey', f)
+    print(runs_db.find({}))
 
 
-def download_and_parse_mcap(s3_client, bucket: str, object_path: str) -> dict[str, str]:
+
+def download_and_parse_mcap(s3_client, bucket: str, object_path: str, idx: int) -> dict[str, str]:
+    print(f"parsing file {idx}")
     metadata_obj: dict[str, str] = {
         "_id": str(uuid.uuid4()),
         'mcap_object_path': object_path,
@@ -76,11 +80,10 @@ def download_and_parse_mcap(s3_client, bucket: str, object_path: str) -> dict[st
             m_name = getattr(metadata, 'name')
             m_data = getattr(metadata, 'metadata')
             metadata_obj[m_name] = m_data
-            print(m_name)
 
-    print(metadata_obj)
     return metadata_obj
 
 
 if __name__ == "__main__":
     populate_database()
+

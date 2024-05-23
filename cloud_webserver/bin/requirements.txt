@@ -1,0 +1,14 @@
+boto3==1.34.112
+botocore==1.34.112
+dnspython==2.6.1
+jmespath==1.0.1
+lz4==4.3.3
+mcap==1.1.1
+pymongo==4.7.2
+python-dateutil==2.9.0.post0
+python-dotenv==1.0.1
+s3transfer==0.10.1
+six==1.16.0
+urllib3==2.2.1
+uuid==1.30
+zstandard==0.22.0
