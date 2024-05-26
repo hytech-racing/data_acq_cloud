@@ -20,40 +20,27 @@ requirements:
         experimental-features = nix-command flakes
         ```
 
-## development guide:
+## Development Guide:
 
-- to bring up the database development container simply run: `./docker_bringup.sh`
-- to shutdown the database dev container: `docker stop my_mongo`
+- to run the local cloud webserver and database, run `./cloud_webserver/bin/docker_up.sh dev`.
+  - If you are running this for the first time, it will take a while because it is creating and populating a local database for you to use.
+- to shutdown the server and database containers, run `./cloud_webserver/bin/docker_down.sh dev`
 
 - to enter the docker container and run commands to interact with the database using `mongosh`: 
 ```
-docker exec -it my_mongo /bin/bash
+docker exec -it local_hytechdb /bin/bash
 ```
 
 - to drop to `mongosh` CLI for looking at contents of database:
 ```
-mongosh mongodb://admin:password@localhost:27017/
+mongosh mongodb://username:password@localhost:27017/
 ```
 - in `mongosh` shell you can use the following commands
 
     - `show databases` to list the databases that exist in the docker container
-    - `use HyTech_database` to switch to database that the script is writing to (can be seen on line 62 of the `write_and_read_metas.py` script)
+    - `use hytechDB` to switch to database that the script is writing to
     - `show collections` to see the collections that have been written to
     - `db.<insert-collection-name-here>.find()` to list all data in specific collection
-
-### AWS Database Setup
-## Starting Up EC2 Instance
-In terminal run:
-- export NIXPKGS_ALLOW_UNFREE=1
-- nix shell nixpkgs#ec2_api_tools --impure
-- ec2-run-instances -O AWS-ACCESS-KEY  -W AWS-SECRET-KEY --region us-east-1 ami-0c463a64 -k jason-key-pair -t t2.micro --block-device-mapping /dev/xvda=:32
-
-- In the AWS console, change the ec2 security group to rds-security
-
-If you want to change the AMI version, check here: https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/virtualisation/amazon-ec2-amis.nix (for some reason 14.04 doesn’t work)
-Make sure you change the security group of the EC2 instance so that it allows connections from any IP address
-The AWS access keys can be found in IAM. Key pairs can be added through the EC2 dashboard on AWS. 
-32 can be replaced with the desired size of the EBS volume in Gib
 
 ## To connect to the EC2 Instance
 
@@ -93,7 +80,8 @@ Now run in the terminal:
 To turn on the wireguard vpn, run `sudo wg-quick up wg0` and `sudo wg-quick save wg0`. \
 To turn off the wireguard vpn, run `sudo wg-quick down wg0`
 
-> **_NOTE:_** In order to actually have traffic flow through the vpn and port 51820, drop all security groups and set the new security group to `CloudWebServerSecurity`.
+> [!NOTE]
+> In order to actually have traffic flow through the vpn and port 51820, drop all security groups and set the new security group to `CloudWebServerSecurity`.
 
 
 ## Adding yourself to the wireguard vpn
@@ -143,6 +131,16 @@ subgraph data provision
     file_serv -.-> foxglove
 end
 ```
+## Deploying on the EC2 instance
+
+Navigate to the `data_acq_cloud/cloud_webserver` directory and run `./bin/docker_up.sh prod` to start the webserver and the database.
+
+Navigate to the `data_acq_cloud/frontend/visualize` directory and run `nohup serve -s build &`. This will run the website asynchronously with a process id.
+- To stop the frontend, run `ps aux | grep "serve -s build"` to find the process id of the frontend. Stop the frontend with `kill <process id>`
+
+> [!NOTE]
+> This is a pretty obnoxious and bad way to run the frontend. We can probably just dockerize it like the webserver, but until then this works.
+> Also, we aren't building and running the frontend along with the backend in the docker compose yml file because the aws free tier doesn't have enough memory to do so.
 
 ### data acquisition overview
 - data acquisition management website (built into [data_acq](https://github.com/RCMast3r/data_acq/))

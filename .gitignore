@@ -127,6 +127,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+script_venv/
 .env.dev
 .env.prod
 
