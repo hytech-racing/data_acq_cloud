@@ -80,7 +80,7 @@ Now run in the terminal:
 To turn on the wireguard vpn, run `sudo wg-quick up wg0` and `sudo wg-quick save wg0`. \
 To turn off the wireguard vpn, run `sudo wg-quick down wg0`
 
-> [!NOTE]
+> [!IMPORTANT]
 > In order to actually have traffic flow through the vpn and port 51820, drop all security groups and set the new security group to `CloudWebServerSecurity`.
 
 
