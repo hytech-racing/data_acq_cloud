@@ -1,12 +1,14 @@
 # Data Acquisition Cloud Webserver
 
-## Setup Packages
+## Setup Packages (Optional)
+> [!TIP]
+> You don't have to do this, but you may want to so you get autocomplete with packages in whatever IDE you are using.
 
-Make sure you are in root of cloud_webserver.
+Make sure you are in root of `cloud_webserver`.
 
 Install virtualenv via pip, `pip install virtualenv`.
 Create your python virtual environment with `python -m venv <virtual-environment-name>`. 
-If on windows, activate the virtual environment with `env/Scripts/activate.bat` if usingcmd and `env/Scripts/Activate.ps1` if using powershell.
+If on windows, activate the virtual environment with `env/Scripts/activate.bat` if using cmd and `env/Scripts/Activate.ps1` if using powershell.
 
 If on linux/mac, use `source env/bin/activate`.
 
@@ -14,19 +16,23 @@ Next, install the packages with `pip install -r requirements.txt`. Everytime you
 
 ## Running Locally and Deploying
 
-Run the server with `waitress-serve --port=8080 --call app:create_app`. 
+Source the two files `data_acq_cloud/cloud_webserver/bin/docker_up.sh` and `data_acq_cloud/cloud_webserver/bin/docker_down.sh`.
 
-To create the docker image, run `docker build -t cloud-webserver:<tag> .`. You can check if the docker runs with `docker run -p 8080:8080 cloud-webserver`. 
+To start the webserver and database, run `docker_up.sh dev`. This will run the local docker database and the dockerized code. If you are running this for the first time, it will take a while because the script is creating a local database for you and populating it with mcap data you can use to test your code.
 
+To stop the webserver and database, run `docker_down.sh dev`. This will shutdown the database as well.
 
-Tag the local image with `docker tag cloud-webserver:<tag> <hytech_username>/cloud-webserver:<tag>`
+If you just want to start your local database run `docker start local_hytechdb`.
 
-To push a docker image, setup login with docker. Create a text file and put your token there. Login to docker with `cat <path-to-token> | docker login --username <hytech_username> --password-stdin`.
+You can enter the docker container with `docker exec -it local_hytechdb /bin/bash` and can then drop to the `mongosh` cli with `mongosh mongodb://username:password@localhost:27017/`.
 
-Push the docker image with `docker push <hytech_username>/cloud-webserver:<tag>`.
+To deploy your code, just push your changes to the github and merge to main.
 
 ## Run the Webserver on the EC2 instance
 
-First, ssh into the EC2 instance. Then, login to docker the same way you do on your local machine (there should already be a text file with the token, so use that). Pull the docker image with `docker pull <hytech_username>/cloud-webserver:<tag>`. You can check it exists with `docker images`. 
+First, ssh into the EC2 instance and navigate to the `data_acq_cloud` directory.
 
-Run the docker image with `docker run -d -p 8080:8080 <image_name>`. You can stop it for whatever reason by running `docker stop <image_name>`
+Make sure you are on the main branch and pull the latest changes. Start the webserver and database with `./cloud_webserver/bin/docker_up.sh prod`. Stop the webserver and database with `./cloud_webserver/bin/docker_down.sh prod`. 
+
+On your local computer, connect to the wireguard vpn. You can send requests to the server with the address: `10.0.0.1/{endpoint}`.
+
