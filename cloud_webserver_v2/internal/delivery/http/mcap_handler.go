@@ -1,4 +1,4 @@
-package handler
+package http
 
 import (
 	"errors"
@@ -9,7 +9,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/hytech-racing/cloud-webserver-v2/utils"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
 
 type mcapHandler struct{}
@@ -50,25 +51,39 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 		fmt.Errorf("could not get mcap mesages")
 	}
 
-	for {
-		schema, channel, message, err := message_iterator.NextInto(nil)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			log.Fatalf("error reading mcap message: %v", err)
-		}
-
-		if schema == nil {
-			log.Printf("no schema found for channel ID: %d, channel: %s", message.ChannelID, channel)
-			continue
-		}
-
-		_, err = mcapUtils.GetDecodedMessage(schema, message)
-		if err != nil {
-			log.Printf("could not decode message: %v", err)
-		}
-
+	publisher := messaging.NewPublisher()
+	subscribers := []messaging.SubscriberFunc{
+		messaging.PrintMessages,
 	}
+	for i, sub := range subscribers {
+		name := fmt.Sprintf("Subscriber%d", i+1)
+		publisher.Subscribe(i, name, sub)
+	}
+
+	go func() {
+		for {
+			schema, channel, message, err := message_iterator.NextInto(nil)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			if err != nil {
+				log.Fatalf("error reading mcap message: %v", err)
+			}
+
+			if schema == nil {
+				log.Printf("no schema found for channel ID: %d, channel: %s", message.ChannelID, channel)
+				continue
+			}
+
+			decodedMessage, err := mcapUtils.GetDecodedMessage(schema, message)
+			if err != nil {
+				log.Printf("could not decode message: %v", err)
+			}
+
+			publisher.Publish(&decodedMessage, []string{"Subscriber1"})
+		}
+	}()
+	publisher.CloseAllSubscribers()
+	fmt.Println("All Subscribers finished")
 }

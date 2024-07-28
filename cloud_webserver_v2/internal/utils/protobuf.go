@@ -9,6 +9,9 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
+// MCAP doesn't have a native protobuf wrapper for golang, so we have to
+// dynamically decode the schemas and messages
+
 type protobufUtils struct {
 	protoDescriptions map[string]*desc.FileDescriptor
 }
