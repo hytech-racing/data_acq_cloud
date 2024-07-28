@@ -83,7 +83,9 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 
 			publisher.Publish(&decodedMessage, []string{"Subscriber1"})
 		}
+		publisher.CloseAllSubscribers()
 	}()
-	publisher.CloseAllSubscribers()
+
+	publisher.WaitForClosure()
 	fmt.Println("All Subscribers finished")
 }

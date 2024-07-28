@@ -60,11 +60,13 @@ func (p *Publisher) Publish(message *utils.DecodedMessage, subscriberNames []str
 // Closes all subscriber channels
 func (p *Publisher) CloseAllSubscribers() {
 	p.mutex.Lock()
+	defer p.mutex.Unlock()
 
 	for _, ch := range p.subscribers {
 		close(ch)
 	}
+}
 
-	p.mutex.Unlock()
+func (p *Publisher) WaitForClosure() {
 	p.wg.Wait()
 }
