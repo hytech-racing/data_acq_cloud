@@ -13,6 +13,10 @@ type protobufUtils struct {
 	protoDescriptions map[string]*desc.FileDescriptor
 }
 
+type ProtobufMessage struct {
+	name string
+}
+
 func NewProtobufUtils() *protobufUtils {
 	return &protobufUtils{
 		protoDescriptions: make(map[string]*desc.FileDescriptor),

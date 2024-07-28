@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/hytech-racing/cloud-webserver-v2/utils"
-	"github.com/jhump/protoreflect/dynamic"
 )
 
 type mcapHandler struct{}
@@ -50,37 +50,25 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 		fmt.Errorf("could not get mcap mesages")
 	}
 
-	protobufUtils := utils.NewProtobufUtils()
-	schema, channel, message, err := message_iterator.NextInto(nil)
-	count := 0
-	for !errors.Is(err, io.EOF) {
+	for {
+		schema, channel, message, err := message_iterator.NextInto(nil)
+		if errors.Is(err, io.EOF) {
+			break
+		}
 
-		fd, err := protobufUtils.GetDecodedSchema(schema)
 		if err != nil {
-			fmt.Errorf("Failed to load schema")
+			log.Fatalf("error reading mcap message: %v", err)
 		}
 
-		messageDescriptor := fd.FindMessage(schema.Name)
-		if messageDescriptor == nil {
-			fmt.Errorf("Failed to find descriptor after loading pool")
+		if schema == nil {
+			log.Printf("no schema found for channel ID: %d, channel: %s", message.ChannelID, channel)
+			continue
 		}
 
-		dynMsg := dynamic.NewMessage(messageDescriptor)
-		if err := dynMsg.Unmarshal(message.Data); err != nil {
-			fmt.Errorf("Failed to parse message using included schema: %v", err)
+		_, err = mcapUtils.GetDecodedMessage(schema, message)
+		if err != nil {
+			log.Printf("could not decode message: %v", err)
 		}
 
-		fields := dynMsg.GetKnownFields()
-		fmt.Printf("%s\t(%s)\t[%d]:\t{ ", channel.Topic, schema.Name, message.LogTime)
-		for _, field := range fields {
-			value := dynMsg.GetField(field)
-			fmt.Printf("%s ", field.GetName())
-			fmt.Println("%s ", value)
-		}
-		fmt.Println("} \n\n\n")
-
-		schema, _, message, err = message_iterator.NextInto(nil)
-		count++
 	}
-	println(count)
 }
