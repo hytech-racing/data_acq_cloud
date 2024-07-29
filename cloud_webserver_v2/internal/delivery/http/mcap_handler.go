@@ -13,10 +13,18 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
 
-type mcapHandler struct{}
+type mcapHandler struct {
+	subscriber_mapping map[string]messaging.SubscriberFunc
+}
 
 func NewMcapHandler(r *chi.Mux) {
-	handler := &mcapHandler{}
+	subscriber_mapping := make(map[string]messaging.SubscriberFunc)
+	subscriber_mapping["print_message"] = messaging.PrintMessages
+	subscriber_mapping["vn_plot"] = messaging.PlotLatLon
+
+	handler := &mcapHandler{
+		subscriber_mapping: subscriber_mapping,
+	}
 
 	r.Route("/mcaps", func(r chi.Router) {
 		r.Post("/upload", handler.UploadMcap)
@@ -52,18 +60,19 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	publisher := messaging.NewPublisher()
-	subscribers := []messaging.SubscriberFunc{
-		messaging.PrintMessages,
-	}
-	for i, sub := range subscribers {
-		name := fmt.Sprintf("Subscriber%d", i+1)
-		publisher.Subscribe(i, name, sub)
+	subscriber_names := make([]string, len(h.subscriber_mapping))
+	idx := 0
+	for subscriber_name, function := range h.subscriber_mapping {
+		subscriber_names[idx] = subscriber_name
+		publisher.Subscribe(idx+1, subscriber_name, function)
+		idx++
 	}
 
 	go func() {
 		for {
 			schema, channel, message, err := message_iterator.NextInto(nil)
 			if errors.Is(err, io.EOF) {
+				h.routeMessagesToSubscribers(publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
 				break
 			}
 
@@ -81,11 +90,25 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 				log.Printf("could not decode message: %v", err)
 			}
 
-			publisher.Publish(&decodedMessage, []string{"Subscriber1"})
+			h.routeMessagesToSubscribers(publisher, &decodedMessage, &subscriber_names)
 		}
 		publisher.CloseAllSubscribers()
 	}()
 
 	publisher.WaitForClosure()
 	fmt.Println("All Subscribers finished")
+}
+
+func (h *mcapHandler) routeMessagesToSubscribers(publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
+	var subscriberNames []string
+	switch topic := decodedMessage.Topic; topic {
+	case messaging.EOF:
+		subscriberNames = append(subscriberNames, *allNames...)
+	case "vn_lat_lon":
+		subscriberNames = append(subscriberNames, "vn_plot", "matlab")
+	default:
+		subscriberNames = append(subscriberNames, "matlab")
+	}
+
+	publisher.Publish(decodedMessage, subscriberNames)
 }
