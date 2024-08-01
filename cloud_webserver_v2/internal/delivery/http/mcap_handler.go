@@ -62,7 +62,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 		fmt.Errorf("could not get mcap mesages")
 	}
 
-	publisher := messaging.NewPublisher()
+	publisher := messaging.NewPublisher(false)
 	subscriber_names := make([]string, len(h.subscriber_mapping))
 	idx := 0
 	for subscriber_name, function := range h.subscriber_mapping {
@@ -72,7 +72,8 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		publisher.CollectResults()
+		// Required to call CollectResults if using channels which send responses. This is because it creates the channel which the
+		// results will be sent through
 		for {
 			schema, channel, message, err := message_iterator.NextInto(nil)
 			if errors.Is(err, io.EOF) {
@@ -98,6 +99,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 		}
 		publisher.CloseAllSubscribers()
 	}()
+
 	publisher.WaitForClosure()
 
 	results := publisher.GetResults()
@@ -115,7 +117,7 @@ func (h *mcapHandler) routeMessagesToSubscribers(publisher *messaging.Publisher,
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, *allNames...)
 	case "vn_lat_lon":
-		subscriberNames = append(subscriberNames, "vn_plot", "matlab", "print")
+		subscriberNames = append(subscriberNames, "matlab")
 	default:
 		subscriberNames = append(subscriberNames, "matlab")
 	}

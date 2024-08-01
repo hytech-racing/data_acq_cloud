@@ -20,7 +20,12 @@ func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, r
 		}
 	}
 
-	results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: "Done printing"}
+	result := make(map[string]interface{})
+	result["out"] = "Done printing"
+
+	if results != nil {
+		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
+	}
 }
 
 func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
@@ -75,7 +80,12 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 
 	}
 
-	subscribers.GeneratePlot(&xs, &ys, minX, maxX, minY, maxY)
+	writer := subscribers.GeneratePlot(&xs, &ys, minX, maxX, minY, maxY)
 
-	results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: "Done lat-lon"}
+	result := make(map[string]interface{})
+	result["writer"] = writer
+
+	if results != nil {
+		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
+	}
 }

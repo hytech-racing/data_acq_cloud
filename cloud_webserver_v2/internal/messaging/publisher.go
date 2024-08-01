@@ -26,15 +26,26 @@ type Publisher struct {
 type SubscriberResult struct {
 	SubscriberID   int
 	SubscriberName string
-	ResultData     interface{}
+	ResultData     map[string]interface{}
 }
 
-func NewPublisher() *Publisher {
-	return &Publisher{
+func NewPublisher(enableResultsListener bool) *Publisher {
+	var results_chan chan SubscriberResult = nil
+	if enableResultsListener {
+		results_chan = make(chan SubscriberResult)
+	}
+
+	publisher := &Publisher{
 		subscribers:  make(map[string]chan SubscribedMessage),
-		results_chan: make(chan SubscriberResult),
+		results_chan: results_chan,
 		end_results:  make(map[string]interface{}),
 	}
+
+	if enableResultsListener {
+		publisher.initCollectResults()
+	}
+
+	return publisher
 }
 
 // Subscribe adds a new subscriber channel to the publisher
@@ -80,12 +91,16 @@ func (p *Publisher) CloseAllSubscribers() {
 
 func (p *Publisher) WaitForClosure() {
 	p.wg.Wait()
-	close(p.results_chan)
-	p.resultsWg.Wait()
+
+	if p.results_chan != nil {
+		close(p.results_chan)
+		p.resultsWg.Wait()
+	}
 }
 
-func (p *Publisher) CollectResults() {
+func (p *Publisher) initCollectResults() {
 	p.resultsWg.Add(1)
+
 	go func() {
 		defer p.resultsWg.Done()
 		p.collectResults(p.results_chan)
