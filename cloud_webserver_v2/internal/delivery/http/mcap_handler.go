@@ -10,20 +10,23 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
 
 type mcapHandler struct {
 	subscriber_mapping map[string]messaging.SubscriberFunc
+	s3_repository      *s3.S3Repository
 }
 
-func NewMcapHandler(r *chi.Mux) {
+func NewMcapHandler(r *chi.Mux, s3_repository *s3.S3Repository) {
 	subscriber_mapping := make(map[string]messaging.SubscriberFunc)
-	subscriber_mapping["print_message"] = messaging.PrintMessages
+	subscriber_mapping["print"] = messaging.PrintMessages
 	subscriber_mapping["vn_plot"] = messaging.PlotLatLon
 
 	handler := &mcapHandler{
 		subscriber_mapping: subscriber_mapping,
+		s3_repository:      s3_repository,
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
@@ -43,9 +46,9 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	fmt.Println("Uploaded file: %+v", handler.Filename)
-	fmt.Println("File size: %+v", handler.Size)
-	fmt.Println("MIME Header: %+v", handler.Header)
+	log.Println("Uploaded file: %+v", handler.Filename)
+	log.Println("File size: %+v", handler.Size)
+	log.Println("MIME Header: %+v", handler.Header)
 
 	mcapUtils := utils.NewMcapUtils()
 	reader, err := mcapUtils.NewReader(file)
@@ -69,6 +72,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
+		publisher.CollectResults()
 		for {
 			schema, channel, message, err := message_iterator.NextInto(nil)
 			if errors.Is(err, io.EOF) {
@@ -94,18 +98,24 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 		}
 		publisher.CloseAllSubscribers()
 	}()
-
 	publisher.WaitForClosure()
+
+	results := publisher.GetResults()
+	for k, v := range results {
+		fmt.Printf("key: %v, val: %v, \n", k, v)
+	}
+
 	fmt.Println("All Subscribers finished")
 }
 
 func (h *mcapHandler) routeMessagesToSubscribers(publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
+	// List of all the workers we want to send the messages to
 	var subscriberNames []string
 	switch topic := decodedMessage.Topic; topic {
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, *allNames...)
 	case "vn_lat_lon":
-		subscriberNames = append(subscriberNames, "vn_plot", "matlab")
+		subscriberNames = append(subscriberNames, "vn_plot", "matlab", "print")
 	default:
 		subscriberNames = append(subscriberNames, "matlab")
 	}

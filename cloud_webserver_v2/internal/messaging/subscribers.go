@@ -11,17 +11,19 @@ import (
 const EOF = "EOF_MESSAGE"
 
 // Subscriber function type
-type SubscriberFunc func(id int, ch <-chan SubscribedMessage)
+type SubscriberFunc func(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult)
 
-func PrintMessages(id int, ch <-chan SubscribedMessage) {
+func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	for msg := range ch {
 		if msg.GetContent().Topic != EOF {
 			fmt.Printf("content: %v \n", msg.GetContent().Data)
 		}
 	}
+
+	results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: "Done printing"}
 }
 
-func PlotLatLon(id int, ch <-chan SubscribedMessage) {
+func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	xs := make([]float64, 0)
 	ys := make([]float64, 0)
 	first := true
@@ -74,4 +76,6 @@ func PlotLatLon(id int, ch <-chan SubscribedMessage) {
 	}
 
 	subscribers.GeneratePlot(&xs, &ys, minX, maxX, minY, maxY)
+
+	results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: "Done lat-lon"}
 }

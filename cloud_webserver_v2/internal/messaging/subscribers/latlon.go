@@ -1,6 +1,7 @@
 package subscribers
 
 import (
+	"io"
 	"log"
 	"math"
 
@@ -10,7 +11,7 @@ import (
 	"gonum.org/v1/plot/vg"
 )
 
-const EarthRadius = 6371000 // Earth's radius in meters
+const earthRadius = 6371000 // Earth's radius in meters
 
 func LatLonToCartesian(lat, lon, originLat, originLon float64) (float64, float64) {
 	// Convert degrees to radians
@@ -24,13 +25,13 @@ func LatLonToCartesian(lat, lon, originLat, originLon float64) (float64, float64
 	dLon := lon - originLon
 
 	// Calculate x and y
-	x := EarthRadius * dLon * math.Cos(originLat)
-	y := EarthRadius * dLat
+	x := earthRadius * dLon * math.Cos(originLat)
+	y := earthRadius * dLat
 
 	return x, y
 }
 
-func GeneratePlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) {
+func GeneratePlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) *io.WriterTo {
 	p := plot.New()
 	p.Title.Text = "VN Position Data"
 	p.X.Label.Text = "x"
@@ -52,8 +53,10 @@ func GeneratePlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) {
 		log.Fatalf("could not create scatters: %+v", err)
 	}
 
-	err = p.Save(25*vg.Centimeter, 25*vg.Centimeter, "./scatter2-fix.png")
+	writer, err := p.WriterTo(25*vg.Centimeter, 25*vg.Centimeter, "png")
 	if err != nil {
-		log.Fatalf("Could not save scatter plot: %+v", err)
+		log.Fatalf("could not get plot writer: %+v", err)
 	}
+
+	return &writer
 }

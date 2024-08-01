@@ -51,6 +51,7 @@ func (m *mcapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message
 		Topic: schema.Name,
 		Data:  make(map[string]interface{}),
 	}
+
 	fields := dynMsg.GetKnownFields()
 	for _, field := range fields {
 		value := dynMsg.GetField(field)

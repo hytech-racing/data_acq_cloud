@@ -15,14 +15,25 @@ func (sm *SubscribedMessage) GetContent() *utils.DecodedMessage {
 }
 
 type Publisher struct {
-	subscribers map[string]chan SubscribedMessage
-	mutex       sync.Mutex
-	wg          sync.WaitGroup
+	subscribers  map[string]chan SubscribedMessage
+	results_chan chan SubscriberResult
+	end_results  map[string]interface{}
+	mutex        sync.Mutex
+	wg           sync.WaitGroup
+	resultsWg    sync.WaitGroup
+}
+
+type SubscriberResult struct {
+	SubscriberID   int
+	SubscriberName string
+	ResultData     interface{}
 }
 
 func NewPublisher() *Publisher {
 	return &Publisher{
-		subscribers: make(map[string]chan SubscribedMessage),
+		subscribers:  make(map[string]chan SubscribedMessage),
+		results_chan: make(chan SubscriberResult),
+		end_results:  make(map[string]interface{}),
 	}
 }
 
@@ -37,7 +48,7 @@ func (p *Publisher) Subscribe(id int, subscriberName string, subFunc SubscriberF
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		subFunc(id, channel)
+		subFunc(id, subscriberName, channel, p.results_chan)
 	}()
 }
 
@@ -69,4 +80,29 @@ func (p *Publisher) CloseAllSubscribers() {
 
 func (p *Publisher) WaitForClosure() {
 	p.wg.Wait()
+	close(p.results_chan)
+	p.resultsWg.Wait()
+}
+
+func (p *Publisher) CollectResults() {
+	p.resultsWg.Add(1)
+	go func() {
+		defer p.resultsWg.Done()
+		p.collectResults(p.results_chan)
+	}()
+}
+
+func (p *Publisher) collectResults(results_chan <-chan SubscriberResult) {
+	for msg := range results_chan {
+		p.mutex.Lock()
+		data := msg.ResultData
+		p.end_results[msg.SubscriberName] = data
+		p.mutex.Unlock()
+	}
+}
+
+func (p *Publisher) GetResults() map[string]interface{} {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	return p.end_results
 }
