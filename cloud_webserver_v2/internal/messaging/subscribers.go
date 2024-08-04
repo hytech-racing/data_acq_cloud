@@ -80,10 +80,10 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 
 	}
 
-	writer := subscribers.GeneratePlot(&xs, &ys, minX, maxX, minY, maxY)
+	writerTo := subscribers.GeneratePlot(&xs, &ys, minX, maxX, minY, maxY)
 
 	result := make(map[string]interface{})
-	result["writer"] = writer
+	result["writer_to"] = writerTo
 
 	if results != nil {
 		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}

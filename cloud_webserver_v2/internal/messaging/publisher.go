@@ -17,7 +17,7 @@ func (sm *SubscribedMessage) GetContent() *utils.DecodedMessage {
 type Publisher struct {
 	subscribers  map[string]chan SubscribedMessage
 	results_chan chan SubscriberResult
-	end_results  map[string]interface{}
+	end_results  map[string]SubscriberResult
 	mutex        sync.Mutex
 	wg           sync.WaitGroup
 	resultsWg    sync.WaitGroup
@@ -38,7 +38,7 @@ func NewPublisher(enableResultsListener bool) *Publisher {
 	publisher := &Publisher{
 		subscribers:  make(map[string]chan SubscribedMessage),
 		results_chan: results_chan,
-		end_results:  make(map[string]interface{}),
+		end_results:  make(map[string]SubscriberResult),
 	}
 
 	if enableResultsListener {
@@ -110,13 +110,12 @@ func (p *Publisher) initCollectResults() {
 func (p *Publisher) collectResults(results_chan <-chan SubscriberResult) {
 	for msg := range results_chan {
 		p.mutex.Lock()
-		data := msg.ResultData
-		p.end_results[msg.SubscriberName] = data
+		p.end_results[msg.SubscriberName] = msg
 		p.mutex.Unlock()
 	}
 }
 
-func (p *Publisher) GetResults() map[string]interface{} {
+func (p *Publisher) GetResults() map[string]SubscriberResult {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	return p.end_results

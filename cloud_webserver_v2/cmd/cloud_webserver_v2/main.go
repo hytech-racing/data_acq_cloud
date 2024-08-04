@@ -53,7 +53,13 @@ func main() {
 	if aws_region == "" {
 		log.Fatal("could not get aws region environment variable")
 	}
-	s3_respository := s3.NewS3Session("us-east-2")
+
+	aws_bucket := os.Getenv("AWS_S3_RUN_BUCKET")
+	if aws_region == "" {
+		log.Fatal("could not get aws region environment variable")
+	}
+
+	s3_respository := s3.NewS3Session(aws_region, aws_bucket)
 
 	// Set a timeout value on the request context (ctx), that will signal
 	// through ctx.Done() that the request has timed out and further

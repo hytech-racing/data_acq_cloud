@@ -10,9 +10,10 @@ import (
 
 type S3Session struct {
 	client *s3.Client
+    bucket string
 }
 
-func NewS3Session(region string) *S3Repository {
+func NewS3Session(region string, bucket string) *S3Repository {
 	// Load aws config (.aws/config)
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 	if err != nil {
@@ -24,6 +25,7 @@ func NewS3Session(region string) *S3Repository {
 
 	session := &S3Session{
 		client: client,
+        bucket: bucket,
 	}
 	return &S3Repository{
 		s3_session: session,

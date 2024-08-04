@@ -62,7 +62,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 		fmt.Errorf("could not get mcap mesages")
 	}
 
-	publisher := messaging.NewPublisher(false)
+	publisher := messaging.NewPublisher(true)
 	subscriber_names := make([]string, len(h.subscriber_mapping))
 	idx := 0
 	for subscriber_name, function := range h.subscriber_mapping {
@@ -103,8 +103,17 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	publisher.WaitForClosure()
 
 	results := publisher.GetResults()
-	for k, v := range results {
-		fmt.Printf("key: %v, val: %v, \n", k, v)
+	for key, val := range results {
+		if key == "vn_plot" {
+			data := val.ResultData
+			log.Printf("found data %v \n ", data)
+			if writer_to, ok := data["writer_to"].(*io.WriterTo); ok {
+				log.Printf("is it ok, %v", ok)
+
+				log.Printf("found writer \n ")
+				h.s3_repository.WriteObject(writer_to, "object")
+			}
+		}
 	}
 
 	fmt.Println("All Subscribers finished")
@@ -117,7 +126,7 @@ func (h *mcapHandler) routeMessagesToSubscribers(publisher *messaging.Publisher,
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, *allNames...)
 	case "vn_lat_lon":
-		subscriberNames = append(subscriberNames, "matlab")
+		subscriberNames = append(subscriberNames, "matlab", "vn_plot")
 	default:
 		subscriberNames = append(subscriberNames, "matlab")
 	}
