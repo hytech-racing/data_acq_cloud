@@ -35,6 +35,7 @@ func NewMcapHandler(r *chi.Mux, s3_repository *s3.S3Repository) {
 }
 
 func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	err := r.ParseMultipartForm(int64(math.Pow(10, 9)))
 	if err != nil {
 		fmt.Errorf("cloud not parse mutlipart form")
@@ -111,7 +112,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 				log.Printf("is it ok, %v", ok)
 
 				log.Printf("found writer \n ")
-				h.s3_repository.WriteObject(writer_to, "object")
+				h.s3_repository.WriteObject(ctx, writer_to, "object")
 			}
 		}
 	}

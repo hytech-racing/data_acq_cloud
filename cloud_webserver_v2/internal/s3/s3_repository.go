@@ -15,7 +15,7 @@ type S3Repository struct {
 	s3_session *S3Session
 }
 
-func (s *S3Repository) WriteObject(writer *io.WriterTo, objectName string) {
+func (s *S3Repository) WriteObject(ctx context.Context, writer *io.WriterTo, objectName string) {
 	var buf bytes.Buffer
 
 	_, err := (*writer).WriteTo(&buf)
@@ -24,7 +24,7 @@ func (s *S3Repository) WriteObject(writer *io.WriterTo, objectName string) {
 	}
 
 	reader := bytes.NewReader(buf.Bytes())
-	_, err = s.s3_session.client.PutObject(context.TODO(), &s3.PutObjectInput{
+	_, err = s.s3_session.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(s.s3_session.bucket),
 		Key:    aws.String(objectName),
 		Body:   reader,
@@ -35,8 +35,8 @@ func (s *S3Repository) WriteObject(writer *io.WriterTo, objectName string) {
 	}
 }
 
-func (s *S3Repository) ListObjects() {
-	result, err := s.s3_session.client.ListBuckets(context.TODO(), &s3.ListBucketsInput{})
+func (s *S3Repository) ListObjects(ctx context.Context) {
+	result, err := s.s3_session.client.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
 		fmt.Printf("Couldn't list buckets for your account. Here's why: %v\n", err)
 		return
