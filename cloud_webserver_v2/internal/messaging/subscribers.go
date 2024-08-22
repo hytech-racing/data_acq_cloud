@@ -14,9 +14,51 @@ const EOF = "EOF_MESSAGE"
 type SubscriberFunc func(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult)
 
 func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	// mapp := make(map[reflect.Type]bool)
+	//
+	// for msg := range ch {
+	// 	if msg.GetContent().Topic != EOF {
+	// 		for _, val := range msg.GetContent().Data {
+	// 			typee := reflect.TypeOf(val)
+	// 			if num, ok := val.(string); ok {
+	// 				i, err := strconv.Atoi(num)
+	// 				if err != nil {
+	// 					// ... handle error
+	// 					panic(err)
+	// 				}
+	// 				println(i)
+	// 			}
+	// 			if _, found := mapp[typee]; !found {
+	// 				mapp[typee] = true
+	// 			}
+	// 		}
+	//
+	// 		// fmt.Printf("content: %v, %v, %v \n", msg.GetContent().Topic, msg.GetContent().Data, reflect.TypeOf(msg.GetContent().Data))
+	// 	}
+	// }
+
+	// matlab_writer := subscribers.CreateMatlabWriter(0.001)
+	// mapp := make(map[string]reflect.Type)
+	//
+	// for msg := range ch {
+	// 	if msg.GetContent().Topic != EOF {
+	// 		for key, val := range msg.GetContent().Data {
+	// 			if _, found := mapp[key]; !found {
+	// 				mapp[msg.content.Topic+"."+key] = reflect.TypeOf(val)
+	// 			}
+	// 		}
+	// 		matlab_writer.AddSignalValue(msg.GetContent())
+	// 	}
+	// }
+	//
+	// for key, val := range mapp {
+	// 	fmt.Printf("%v, %v \n", key, val)
+	// }
+	// fmt.Printf("types are %v", mapp)
+
 	for msg := range ch {
-		if msg.GetContent().Topic != EOF {
-			fmt.Printf("content: %v \n", msg.GetContent().Data)
+		if msg.content.Topic != EOF {
+			fmt.Printf("%v \n", msg.content.LogTime)
 		}
 	}
 
@@ -88,4 +130,46 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 	if results != nil {
 		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
 	}
+}
+
+func CreateMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	matlabWriter := subscribers.CreateMatlabWriter(0.01)
+
+	fmt.Println("init writer")
+	for msg := range ch {
+		if msg.GetContent().Topic == EOF {
+			break
+		}
+
+		matlabWriter.AddSignalValue(msg.GetContent())
+	}
+
+	fmt.Printf("Interpolated list is %v \n", matlabWriter.Get())
+
+	// *thing1 := make(map[string]*[]interface{})
+	//
+	//	thing2 := make(map[string]*[]interface{})
+	//
+	//	list := []int{1, 2, 3}
+	//
+	//	// Convert []int to []interface{}
+	//	interfaceList := make([]interface{}, len(list))
+	//	for i, v := range list {
+	//		interfaceList[i] = v
+	//	}
+	//
+	//	thing1["a"] = &interfaceList
+	//	thing2["b"] = &interfaceList
+	//
+	//	if x, found := thing2["b"]; found {
+	//		*x = append(*x, 4)
+	//	}
+	//
+	//	if t1, found := thing1["a"]; found {
+	//		fmt.Printf("%v \n", t1)
+	//	}
+	//
+	//	if t2, found := thing2["b"]; found {
+	//		fmt.Printf("%v \n", *t2)
+	//	}
 }

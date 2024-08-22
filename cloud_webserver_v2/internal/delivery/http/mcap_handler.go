@@ -23,6 +23,7 @@ func NewMcapHandler(r *chi.Mux, s3_repository *s3.S3Repository) {
 	subscriber_mapping := make(map[string]messaging.SubscriberFunc)
 	subscriber_mapping["print"] = messaging.PrintMessages
 	subscriber_mapping["vn_plot"] = messaging.PlotLatLon
+	subscriber_mapping["matlab_writer"] = messaging.CreateMatlabFile
 
 	handler := &mcapHandler{
 		subscriber_mapping: subscriber_mapping,
@@ -35,7 +36,7 @@ func NewMcapHandler(r *chi.Mux, s3_repository *s3.S3Repository) {
 }
 
 func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	// ctx := r.Context()
 	err := r.ParseMultipartForm(int64(math.Pow(10, 9)))
 	if err != nil {
 		fmt.Errorf("cloud not parse mutlipart form")
@@ -103,19 +104,19 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 
 	publisher.WaitForClosure()
 
-	results := publisher.GetResults()
-	for key, val := range results {
-		if key == "vn_plot" {
-			data := val.ResultData
-			log.Printf("found data %v \n ", data)
-			if writer_to, ok := data["writer_to"].(*io.WriterTo); ok {
-				log.Printf("is it ok, %v", ok)
-
-				log.Printf("found writer \n ")
-				h.s3_repository.WriteObject(ctx, writer_to, "object")
-			}
-		}
-	}
+	// results := publisher.GetResults()
+	// for key, val := range results {
+	// 	if key == "vn_plot" {
+	// 		data := val.ResultData
+	// 		log.Printf("found data %v \n ", data)
+	// 		if writer_to, ok := data["writer_to"].(*io.WriterTo); ok {
+	// 			log.Printf("is it ok, %v", ok)
+	//
+	// 			log.Printf("found writer \n ")
+	// 			h.s3_repository.WriteObject(ctx, writer_to, "object")
+	// 		}
+	// 	}
+	// }
 
 	fmt.Println("All Subscribers finished")
 }
@@ -127,9 +128,9 @@ func (h *mcapHandler) routeMessagesToSubscribers(publisher *messaging.Publisher,
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, *allNames...)
 	case "vn_lat_lon":
-		subscriberNames = append(subscriberNames, "matlab", "vn_plot")
+		subscriberNames = append(subscriberNames, "vn_plot")
 	default:
-		subscriberNames = append(subscriberNames, "matlab")
+		subscriberNames = append(subscriberNames, "matlab_writer")
 	}
 
 	publisher.Publish(decodedMessage, subscriberNames)
