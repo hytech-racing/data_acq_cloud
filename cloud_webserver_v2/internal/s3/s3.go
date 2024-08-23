@@ -10,7 +10,7 @@ import (
 
 type S3Session struct {
 	client *s3.Client
-    bucket string
+	bucket string
 }
 
 func NewS3Session(region string, bucket string) *S3Repository {
@@ -25,7 +25,7 @@ func NewS3Session(region string, bucket string) *S3Repository {
 
 	session := &S3Session{
 		client: client,
-        bucket: bucket,
+		bucket: bucket,
 	}
 	return &S3Repository{
 		s3_session: session,

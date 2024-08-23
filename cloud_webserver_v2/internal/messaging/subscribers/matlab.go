@@ -1,7 +1,6 @@
 package subscribers
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
@@ -49,12 +48,15 @@ func (w *MatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) {
 
 	if w.firstLogTime == nil {
 		w.firstLogTime = &logTime
+		timeSlice := w.getLogTimeSlice()
+		timeSlice = append(timeSlice, *w.firstLogTime)
+		w.allSignalData["global_times"]["times"] = timeSlice
 	}
 
 	if innerMap, ok := w.allSignalData[topic]; ok {
 		for signalName, signalValueInterface := range data {
 			if _, ok = innerMap[signalName]; ok {
-				fmt.Println(signalName)
+				// fmt.Println(signalName)
 				// TODO: Have to put a check here to populate values to interp from the first log time
 
 				signalSlice := w.getSliceWithTopicAndSignal(topic, signalName)
@@ -81,42 +83,41 @@ func (w *MatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) {
 }
 
 func (w *MatlabWriter) addInterpolatedValuesToSlice(signalSlice []float64, logTime float64, value float64, topic string, signalName string) {
-	// fmt.Printf("before: %v \n", signalSlice)
 	lastSignalTime, lastSignalValue := w.determineLastLogTimeAndSignal(signalSlice)
+	timeSlice := w.getLogTimeSlice()
 	if lastSignalValue == nil {
 		lastSignalValue = &value
 		lastSignalTime = *w.firstLogTime
+		signalSlice = append(signalSlice, *lastSignalValue)
 	}
 	interpTime := lastSignalTime
 
 	deltaValue := (value - *lastSignalValue) / (logTime - lastSignalTime)
-	// fmt.Printf("value: %f, lastSignalValue: %f, logTime: %f, lastSignalTime: %f, delta %f \n", value, *lastSignalValue, logTime, lastSignalTime, deltaValue)
+
 	for {
-		// fmt.Printf("before: %f \n", interpTime)
-		// fmt.Printf("should be: %f \n", interpTime+w.interpValue)
-		// fmt.Printf("interpvalue is : %f \n", interpTime+w.interpValue)
+		if len(timeSlice) != 0 && timeSlice[len(timeSlice)-1] < interpTime {
+			timeSlice = append(timeSlice, interpTime)
+		}
 		interpTime = interpTime + w.interpValue
-		// fmt.Printf("after: %f \n \n", interpTime)
 		if interpTime > logTime {
 			break
 		}
-		// fmt.Printf("%v, %f, %f, %f \n", value, interpTime, logTime, w.interpValue)
 
 		interpValue := *lastSignalValue + deltaValue*(interpTime-lastSignalTime)
-		// fmt.Printf("lastSignalValue: %f, interpTime: %f, lastSignalTime: %f, interpValue \n", *lastSignalValue, interpTime, interpValue, lastSignalTime)
 		signalSlice = append(signalSlice, interpValue)
 
 		lastSignalValue = &interpValue
 		lastSignalTime = interpTime
 
-		// fmt.Printf("Appended interpolated value: interpTime=%v, interpValue=%v\n", interpTime, interpValue)
-		// fmt.Printf("%v, %v \n", interpTime, logTime)
 	}
 
 	signalSlice = append(signalSlice, value)
 	w.allSignalData[topic][signalName] = signalSlice
-	// fmt.Printf("after: %v \n %v \n \n", signalSlice, w.allSignalData)
-	// fmt.Printf("Appended final value: logTime=%v, value=%v\n", logTime, value)
+	w.allSignalData["global_times"]["times"] = timeSlice
+}
+
+func (w *MatlabWriter) getLogTimeSlice() []float64 {
+	return w.getSliceWithTopicAndSignal("global_times", "times")
 }
 
 func (w *MatlabWriter) determineLastLogTimeAndSignal(slice []float64) (float64, *float64) {
@@ -130,7 +131,6 @@ func (w *MatlabWriter) determineLastLogTimeAndSignal(slice []float64) (float64, 
 func (w *MatlabWriter) getSliceWithTopicAndSignal(topic string, signal string) []float64 {
 	if value1, found1 := w.allSignalData[topic]; found1 {
 		if value2, found2 := value1[signal]; found2 {
-			// fmt.Printf("%v value1: %v, %v \n", value2, value1, w.allSignalData)
 			return value2
 		}
 	}
@@ -165,8 +165,8 @@ func getFloatValueOfInterface(val interface{}) float64 {
 	return out
 }
 
-func (w *MatlabWriter) Get() map[string]map[string][]float64 {
-	return w.allSignalData
+func (w *MatlabWriter) Get() map[string][]float64 {
+	return w.allSignalData["acu_shunt_measurements"]
 }
 
 func getTopicAndSignalMap() map[string]map[string][]float64 {
