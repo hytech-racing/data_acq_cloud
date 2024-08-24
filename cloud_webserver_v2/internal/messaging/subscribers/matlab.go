@@ -57,8 +57,6 @@ func (w *MatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) {
 		for signalName, signalValueInterface := range data {
 			if _, ok = innerMap[signalName]; ok {
 				// fmt.Println(signalName)
-				// TODO: Have to put a check here to populate values to interp from the first log time
-
 				signalSlice := w.getSliceWithTopicAndSignal(topic, signalName)
 				if signalSlice == nil {
 					continue
@@ -70,8 +68,7 @@ func (w *MatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) {
 					if logTime != *w.firstLogTime {
 						w.addInterpolatedValuesToSlice(signalSlice, logTime, signalValueFloat, topic, signalName)
 					} else {
-						float_val := getFloatValueOfInterface(signalValueFloat)
-						signalSlice = append(signalSlice, float_val)
+						signalSlice = append(signalSlice, signalValueFloat)
 						w.allSignalData[topic][signalName] = signalSlice
 					}
 				} else {
@@ -85,33 +82,31 @@ func (w *MatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) {
 func (w *MatlabWriter) addInterpolatedValuesToSlice(signalSlice []float64, logTime float64, value float64, topic string, signalName string) {
 	lastSignalTime, lastSignalValue := w.determineLastLogTimeAndSignal(signalSlice)
 	timeSlice := w.getLogTimeSlice()
+	interpTime := lastSignalTime + w.interpValue
+
 	if lastSignalValue == nil {
 		lastSignalValue = &value
 		lastSignalTime = *w.firstLogTime
 		signalSlice = append(signalSlice, *lastSignalValue)
+		interpTime += w.interpValue
 	}
-	interpTime := lastSignalTime
 
 	deltaValue := (value - *lastSignalValue) / (logTime - lastSignalTime)
 
-	for {
-		if len(timeSlice) != 0 && timeSlice[len(timeSlice)-1] < interpTime {
-			timeSlice = append(timeSlice, interpTime)
-		}
-		interpTime = interpTime + w.interpValue
-		if interpTime > logTime {
-			break
-		}
-
+	for interpTime <= logTime {
 		interpValue := *lastSignalValue + deltaValue*(interpTime-lastSignalTime)
 		signalSlice = append(signalSlice, interpValue)
 
 		lastSignalValue = &interpValue
 		lastSignalTime = interpTime
 
+		for len(timeSlice) != 0 && timeSlice[len(timeSlice)-1] < interpTime {
+			timeSlice = append(timeSlice, interpTime)
+		}
+
+		interpTime += w.interpValue
 	}
 
-	signalSlice = append(signalSlice, value)
 	w.allSignalData[topic][signalName] = signalSlice
 	w.allSignalData["global_times"]["times"] = timeSlice
 }
@@ -165,8 +160,12 @@ func getFloatValueOfInterface(val interface{}) float64 {
 	return out
 }
 
-func (w *MatlabWriter) Get() map[string][]float64 {
-	return w.allSignalData["acu_shunt_measurements"]
+func (w *MatlabWriter) Get() []float64 {
+	return w.allSignalData["global_times"]["times"]
+}
+
+func (w *MatlabWriter) GetLengths(topic string, signal string) int {
+	return len(w.allSignalData[topic][signal])
 }
 
 func getTopicAndSignalMap() map[string]map[string][]float64 {

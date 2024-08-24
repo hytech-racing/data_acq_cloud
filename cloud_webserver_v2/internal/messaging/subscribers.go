@@ -101,5 +101,11 @@ func CreateMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage
 		matlabWriter.AddSignalValue(msg.GetContent())
 	}
 
-	fmt.Printf("After everything: %f ", matlabWriter.Get())
+	slice := matlabWriter.Get()
+
+	for idx := range len(slice) - 1 {
+		if slice[idx+1]-slice[idx] != 0.01 {
+			fmt.Errorf("Failed, diff is %f", slice[idx+1]-slice[idx])
+		}
+	}
 }
