@@ -21,7 +21,7 @@ type MatlabWriter struct {
 	factor        uint16
 }
 
-func CreateMatlabWriter(interpolationValue float64) *MatlabWriter {
+func CreateMatlabWriter(interpolationValue float64, schema map[string]map[string][]float64) *MatlabWriter {
 	i := interpolationValue
 	var factor uint16 = 1
 	for i < 1 {
@@ -30,7 +30,7 @@ func CreateMatlabWriter(interpolationValue float64) *MatlabWriter {
 	}
 
 	return &MatlabWriter{
-		allSignalData: getTopicAndSignalMap(),
+		allSignalData: schema,
 		firstLogTime:  nil,
 		interpValue:   interpolationValue,
 		factor:        factor,
@@ -55,25 +55,26 @@ func (w *MatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) {
 
 	if innerMap, ok := w.allSignalData[topic]; ok {
 		for signalName, signalValueInterface := range data {
-			if _, ok = innerMap[signalName]; ok {
-				// fmt.Println(signalName)
-				signalSlice := w.getSliceWithTopicAndSignal(topic, signalName)
-				if signalSlice == nil {
-					continue
-				}
+			if _, ok = innerMap[signalName]; !ok {
+				innerMap[signalName] = make([]float64, 0)
+			}
 
-				signalValueFloat := getFloatValueOfInterface(signalValueInterface)
+			signalSlice := w.getSliceWithTopicAndSignal(topic, signalName)
+			if signalSlice == nil {
+				continue
+			}
 
-				if len(signalSlice) == 0 {
-					if logTime != *w.firstLogTime {
-						w.addInterpolatedValuesToSlice(signalSlice, logTime, signalValueFloat, topic, signalName)
-					} else {
-						signalSlice = append(signalSlice, signalValueFloat)
-						w.allSignalData[topic][signalName] = signalSlice
-					}
-				} else {
+			signalValueFloat := getFloatValueOfInterface(signalValueInterface)
+
+			if len(signalSlice) == 0 {
+				if logTime != *w.firstLogTime {
 					w.addInterpolatedValuesToSlice(signalSlice, logTime, signalValueFloat, topic, signalName)
+				} else {
+					signalSlice = append(signalSlice, signalValueFloat)
+					w.allSignalData[topic][signalName] = signalSlice
 				}
+			} else {
+				w.addInterpolatedValuesToSlice(signalSlice, logTime, signalValueFloat, topic, signalName)
 			}
 		}
 	}
@@ -133,6 +134,23 @@ func (w *MatlabWriter) getSliceWithTopicAndSignal(topic string, signal string) [
 	return nil
 }
 
+func (w *MatlabWriter) InterpolateEndOfSignalSlices() {
+	lenTimeSlice := len(w.allSignalData["global_times"]["times"])
+	for topic, signalNameMap := range w.allSignalData {
+		for signalName, signalSlice := range signalNameMap {
+			if signalSlice == nil {
+				continue
+			}
+
+			for len(signalSlice) < lenTimeSlice {
+				signalSlice = append(signalSlice, signalSlice[len(signalSlice)-1])
+			}
+
+			w.allSignalData[topic][signalName] = signalSlice
+		}
+	}
+}
+
 func getFloatValueOfInterface(val interface{}) float64 {
 	var out float64
 
@@ -160,94 +178,10 @@ func getFloatValueOfInterface(val interface{}) float64 {
 	return out
 }
 
-func (w *MatlabWriter) Get() []float64 {
-	return w.allSignalData["global_times"]["times"]
+func (w *MatlabWriter) Get() map[string]map[string][]float64 {
+	return w.allSignalData
 }
 
 func (w *MatlabWriter) GetLengths(topic string, signal string) int {
 	return len(w.allSignalData[topic][signal])
-}
-
-func getTopicAndSignalMap() map[string]map[string][]float64 {
-	return map[string]map[string][]float64{
-		"global_times": {
-			"times": {},
-		},
-		"acu_shunt_measurements": {
-			"current_shunt_read":   {},
-			"pack_filtered_read":   {},
-			"ts_out_filtered_read": {},
-		},
-		// "bms_detailed_temps": {
-		// 	"current_shunt_read":   {},
-		// 	"pack_filtered_read":   {},
-		// 	"ts_out_filtered_read": {},
-		// },
-		// "bms_detailed_voltages": {
-		// 	"group_id":  {},
-		// 	"ic_id":     {},
-		// 	"voltage_0": {},
-		// 	"voltage_1": {},
-		// 	"voltage_2": {},
-		// },
-		// "bms_onboard_temps": {
-		// 	"average_temp": {},
-		// 	"low_temp":     {},
-		// 	"high_temp":    {},
-		// },
-		// "bms_status": {
-		// 	"state":                            {},
-		// 	"overvoltage_error":                {},
-		// 	"undervoltage_error":               {},
-		// 	"total_voltage_high_error":         {},
-		// 	"discharge_overcurrent_error":      {},
-		// 	"charge_overcurrent_error":         {},
-		// 	"discharge_overtemp_error":         {},
-		// 	"charge_overtemp_error":            {},
-		// 	"undertemp_error":                  {},
-		// 	"overtemp_error":                   {},
-		// 	"current":                          {},
-		// 	"shutdown_g_above_threshold_error": {},
-		// 	"shutdown_h_above_threshold_error": {},
-		// },
-		// "bms_temps": {
-		// 	"average_temp": {},
-		// 	"low_temp":     {},
-		// 	"high_temp":    {},
-		// },
-		// "bms_voltages": {
-		// 	"average_voltage": {},
-		// 	"low_voltage":     {},
-		// 	"high_voltage":    {},
-		// 	"total_voltage":   {},
-		// },
-		// "controller_boolean": {
-		// 	"controller_use_launch":            {},
-		// 	"controller_use_pid_tv":            {},
-		// 	"controller_use_normal_force":      {},
-		// 	"controller_use_pid_power_limit":   {},
-		// 	"controller_use_power_limit":       {},
-		// 	"controller_use_tcs":               {},
-		// 	"controller_use_tcs_lim_yaw_pid":   {},
-		// 	"controller_use_dec_yaw_pid_brake": {},
-		// 	"controller_use_discontin_brakes":  {},
-		// 	"controller_use_no_regen_5kph":     {},
-		// 	"controller_use_torque_bias":       {},
-		// 	"controller_use_nl_tcs_gain_sche":  {},
-		// 	"controller_use_rpm_tcs_gain_sche": {},
-		// 	"controller_use_nl_tcs_slipschedu": {},
-		// },
-		// "controller_normal_dist": {
-		// 	"controller_normal_percent_fl": {},
-		// 	"controller_normal_percent_fr": {},
-		// 	"controller_normal_percent_rl": {},
-		// 	"controller_normal_percent_rr": {},
-		// },
-		// "controller_normal_torque": {
-		// 	"controller_normal_torque_fl": {},
-		// 	"controller_normal_torque_fr": {},
-		// 	"controller_normal_torque_rl": {},
-		// 	"controller_normal_torque_rr": {},
-		// },
-	}
 }

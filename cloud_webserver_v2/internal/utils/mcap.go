@@ -61,3 +61,17 @@ func (m *mcapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message
 	}
 	return decodedMessage, nil
 }
+
+func (m *mcapUtils) GetSchemaList(reader *mcap.Reader) ([]string, error) {
+	mcapInfo, err := reader.Info()
+	if err != nil {
+		return nil, err
+	}
+	schemaList := make([]string, 0)
+
+	for _, schema := range mcapInfo.Schemas {
+		schemaList = append(schemaList, schema.Name)
+	}
+
+	return schemaList, nil
+}
