@@ -116,20 +116,6 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 
 	publisher.WaitForClosure()
 
-	// results := publisher.GetResults()
-	// for key, val := range results {
-	// 	if key == "vn_plot" {
-	// 		data := val.ResultData
-	// 		log.Printf("found data %v \n ", data)
-	// 		if writer_to, ok := data["writer_to"].(*io.WriterTo); ok {
-	// 			log.Printf("is it ok, %v", ok)
-	//
-	// 			log.Printf("found writer \n ")
-	// 			h.s3_repository.WriteObject(ctx, writer_to, "object")
-	// 		}
-	// 	}
-	// }
-
 	fmt.Println("All Subscribers finished")
 }
 
