@@ -13,8 +13,9 @@ type mcapUtils struct {
 }
 
 type DecodedMessage struct {
-	Topic string
-	Data  map[string]interface{}
+	Topic   string
+	Data    map[string]interface{}
+	LogTime uint64
 }
 
 func NewMcapUtils() *mcapUtils {
@@ -48,8 +49,9 @@ func (m *mcapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message
 	}
 
 	decodedMessage := DecodedMessage{
-		Topic: schema.Name,
-		Data:  make(map[string]interface{}),
+		Topic:   schema.Name,
+		Data:    make(map[string]interface{}),
+		LogTime: message.LogTime,
 	}
 
 	fields := dynMsg.GetKnownFields()
@@ -58,4 +60,18 @@ func (m *mcapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message
 		decodedMessage.Data[field.GetName()] = value
 	}
 	return decodedMessage, nil
+}
+
+func (m *mcapUtils) GetSchemaList(reader *mcap.Reader) ([]string, error) {
+	mcapInfo, err := reader.Info()
+	if err != nil {
+		return nil, err
+	}
+	schemaList := make([]string, 0)
+
+	for _, schema := range mcapInfo.Schemas {
+		schemaList = append(schemaList, schema.Name)
+	}
+
+	return schemaList, nil
 }

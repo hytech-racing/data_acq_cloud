@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"context"
 	"sync"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
@@ -8,6 +9,7 @@ import (
 
 type SubscribedMessage struct {
 	content *utils.DecodedMessage
+	ctx     context.Context
 }
 
 func (sm *SubscribedMessage) GetContent() *utils.DecodedMessage {
@@ -64,12 +66,13 @@ func (p *Publisher) Subscribe(id int, subscriberName string, subFunc SubscriberF
 }
 
 // Publishes a new message to all subscribers in subscriberNames
-func (p *Publisher) Publish(message *utils.DecodedMessage, subscriberNames []string) {
+func (p *Publisher) Publish(ctx context.Context, message *utils.DecodedMessage, subscriberNames []string) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	subscriberMessage := SubscribedMessage{
 		content: message,
+		ctx:     ctx,
 	}
 
 	for _, sub := range subscriberNames {

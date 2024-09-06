@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ func NewMcapHandler(r *chi.Mux, s3_repository *s3.S3Repository) {
 	subscriber_mapping := make(map[string]messaging.SubscriberFunc)
 	subscriber_mapping["print"] = messaging.PrintMessages
 	subscriber_mapping["vn_plot"] = messaging.PlotLatLon
+	subscriber_mapping["matlab_writer"] = messaging.CreateMatlabFile
 
 	handler := &mcapHandler{
 		subscriber_mapping: subscriber_mapping,
@@ -52,10 +54,15 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	log.Println("MIME Header: %+v", handler.Header)
 
 	mcapUtils := utils.NewMcapUtils()
+
 	reader, err := mcapUtils.NewReader(file)
-	fmt.Errorf("could not create mcap reader")
 	if err != nil {
 		fmt.Errorf("could not create mcap reader")
+	}
+
+	schemaList, err := mcapUtils.GetSchemaList(reader)
+	if err != nil {
+		log.Panicf("%v", err)
 	}
 
 	message_iterator, err := reader.Messages()
@@ -72,13 +79,19 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 		idx++
 	}
 
+	initMessage := make(map[string]interface{})
+	initMessage["schemaList"] = schemaList
+
 	go func() {
 		// Required to call CollectResults if using channels which send responses. This is because it creates the channel which the
 		// results will be sent through
+
+		h.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
+
 		for {
 			schema, channel, message, err := message_iterator.NextInto(nil)
 			if errors.Is(err, io.EOF) {
-				h.routeMessagesToSubscribers(publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
+				h.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
 				break
 			}
 
@@ -96,41 +109,27 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 				log.Printf("could not decode message: %v", err)
 			}
 
-			h.routeMessagesToSubscribers(publisher, &decodedMessage, &subscriber_names)
+			h.routeMessagesToSubscribers(ctx, publisher, &decodedMessage, &subscriber_names)
 		}
 		publisher.CloseAllSubscribers()
 	}()
 
 	publisher.WaitForClosure()
 
-	results := publisher.GetResults()
-	for key, val := range results {
-		if key == "vn_plot" {
-			data := val.ResultData
-			log.Printf("found data %v \n ", data)
-			if writer_to, ok := data["writer_to"].(*io.WriterTo); ok {
-				log.Printf("is it ok, %v", ok)
-
-				log.Printf("found writer \n ")
-				h.s3_repository.WriteObject(ctx, writer_to, "object")
-			}
-		}
-	}
-
 	fmt.Println("All Subscribers finished")
 }
 
-func (h *mcapHandler) routeMessagesToSubscribers(publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
+func (h *mcapHandler) routeMessagesToSubscribers(ctx context.Context, publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
 	// List of all the workers we want to send the messages to
 	var subscriberNames []string
 	switch topic := decodedMessage.Topic; topic {
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, *allNames...)
 	case "vn_lat_lon":
-		subscriberNames = append(subscriberNames, "matlab", "vn_plot")
+		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
 	default:
-		subscriberNames = append(subscriberNames, "matlab")
+		subscriberNames = append(subscriberNames, "matlab_writer")
 	}
 
-	publisher.Publish(decodedMessage, subscriberNames)
+	publisher.Publish(ctx, decodedMessage, subscriberNames)
 }

@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"reflect"
 
@@ -9,14 +10,15 @@ import (
 )
 
 const EOF = "EOF_MESSAGE"
+const INIT = "INIT_MESSAGE"
 
 // Subscriber function type
 type SubscriberFunc func(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult)
 
 func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	for msg := range ch {
-		if msg.GetContent().Topic != EOF {
-			fmt.Printf("content: %v \n", msg.GetContent().Data)
+		if msg.content.Topic != EOF {
+			fmt.Printf("%v \n", msg.content.Topic)
 		}
 	}
 
@@ -88,4 +90,51 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 	if results != nil {
 		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
 	}
+}
+
+func CreateMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	var matlabWriter *subscribers.MatlabWriter
+	for msg := range ch {
+		if msg.GetContent().Topic == EOF {
+			break
+		} else if msg.GetContent().Topic == INIT {
+			schema, err := getSchemaMap(&msg)
+			if err != nil {
+				log.Panic("could not get mcap schema map")
+			}
+			matlabWriter = subscribers.CreateMatlabWriter(0.001, schema)
+		} else {
+			if matlabWriter != nil {
+				matlabWriter.AddSignalValue(msg.GetContent())
+			}
+		}
+	}
+
+	if matlabWriter != nil {
+		matlabWriter.InterpolateEndOfSignalSlices()
+	}
+}
+
+func getSchemaMap(message *SubscribedMessage) (map[string]map[string][]float64, error) {
+	var mcapSchemaMap map[string]map[string][]float64
+	data := message.GetContent().Data
+
+	if schemas, found := data["schemaList"]; found {
+		if reflect.TypeOf(schemas) != reflect.SliceOf(reflect.TypeOf("")) {
+			return nil, fmt.Errorf("correct schema is not provided for matlab generation")
+		}
+
+		mcapSchemaMap = make(map[string]map[string][]float64)
+		mcapSchemaMap["global_times"] = make(map[string][]float64)
+		mcapSchemaMap["global_times"]["times"] = make([]float64, 0)
+
+		for _, schemaName := range schemas.([]string) {
+			mcapSchemaMap[schemaName] = make(map[string][]float64)
+		}
+
+	} else {
+		return nil, fmt.Errorf("correct schema is not provided for matlab generation")
+	}
+
+	return mcapSchemaMap, nil
 }
