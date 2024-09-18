@@ -24,7 +24,7 @@ func NewMcapHandler(r *chi.Mux, s3_repository *s3.S3Repository) {
 	subscriber_mapping := make(map[string]messaging.SubscriberFunc)
 	subscriber_mapping["print"] = messaging.PrintMessages
 	subscriber_mapping["vn_plot"] = messaging.PlotLatLon
-	subscriber_mapping["matlab_writer"] = messaging.CreateMatlabFile
+	subscriber_mapping["matlab_writer"] = messaging.CreateInterpolatedMatlabFile
 
 	handler := &mcapHandler{
 		subscriber_mapping: subscriber_mapping,
@@ -60,7 +60,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 		fmt.Errorf("could not create mcap reader")
 	}
 
-	schemaList, err := mcapUtils.GetSchemaList(reader)
+	schemaList, err := mcapUtils.GetMcapSchemaList(reader)
 	if err != nil {
 		log.Panicf("%v", err)
 	}
@@ -115,6 +115,18 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	publisher.WaitForClosure()
+
+	subscriberResults := publisher.GetResults()
+	interpolatedData := subscriberResults["matlab_writer"].ResultData["interpolated_data"]
+	utils.CreateMatlabFile(interpolatedData.(*map[string]map[string][]float64))
+
+	// Logic to get all the misc. informaiton
+
+	/*
+	 * Upload files to the AWS s3_repository
+	 *
+	 *
+	 */
 
 	fmt.Println("All Subscribers finished")
 }

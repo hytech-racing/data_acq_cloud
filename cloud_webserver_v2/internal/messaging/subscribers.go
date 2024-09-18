@@ -6,11 +6,15 @@ import (
 	"math"
 	"reflect"
 
+	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
+
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging/subscribers"
 )
 
-const EOF = "EOF_MESSAGE"
-const INIT = "INIT_MESSAGE"
+const (
+	EOF  = "EOF_MESSAGE"
+	INIT = "INIT_MESSAGE"
+)
 
 // Subscriber function type
 type SubscriberFunc func(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult)
@@ -92,17 +96,18 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 	}
 }
 
-func CreateMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
-	var matlabWriter *subscribers.MatlabWriter
+func CreateInterpolatedMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	var matlabWriter *subscribers.InterpolatedMatlabWriter
 	for msg := range ch {
 		if msg.GetContent().Topic == EOF {
 			break
 		} else if msg.GetContent().Topic == INIT {
-			schema, err := getSchemaMap(&msg)
+			schema, err := getInterpolatedSchemaMap(&msg)
+			fmt.Printf("%v, ", schema)
 			if err != nil {
 				log.Panic("could not get mcap schema map")
 			}
-			matlabWriter = subscribers.CreateMatlabWriter(0.001, schema)
+			matlabWriter = subscribers.CreateInterpolatedMatlabWriter(0.001, schema)
 		} else {
 			if matlabWriter != nil {
 				matlabWriter.AddSignalValue(msg.GetContent())
@@ -113,10 +118,40 @@ func CreateMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage
 	if matlabWriter != nil {
 		matlabWriter.InterpolateEndOfSignalSlices()
 	}
+
+	result := make(map[string]interface{})
+	allSignalData := matlabWriter.GetAllSignalData()
+	result["interpolated_data"] = &allSignalData
+
+	if results != nil {
+		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
+	}
 }
 
-func getSchemaMap(message *SubscribedMessage) (map[string]map[string][]float64, error) {
-	var mcapSchemaMap map[string]map[string][]float64
+func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	var matlabWriter *subscribers.RawMatlabWriter
+	for msg := range ch {
+		if msg.GetContent().Topic == EOF {
+			break
+		} else if msg.GetContent().Topic == INIT {
+			matlabWriter = subscribers.CreateRawMatlabWriter()
+		} else {
+			if matlabWriter != nil {
+				matlabWriter.AddSignalValue(msg.GetContent())
+			}
+		}
+	}
+
+	result := make(map[string]interface{})
+	allSignalData := matlabWriter.GetAllSignalData()
+	result["raw_data"] = &allSignalData
+
+	if results != nil {
+		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
+	}
+}
+
+func getInterpolatedSchemaMap(message *SubscribedMessage) (map[string]map[string][]float64, error) {
 	data := message.GetContent().Data
 
 	if schemas, found := data["schemaList"]; found {
@@ -124,17 +159,8 @@ func getSchemaMap(message *SubscribedMessage) (map[string]map[string][]float64, 
 			return nil, fmt.Errorf("correct schema is not provided for matlab generation")
 		}
 
-		mcapSchemaMap = make(map[string]map[string][]float64)
-		mcapSchemaMap["global_times"] = make(map[string][]float64)
-		mcapSchemaMap["global_times"]["times"] = make([]float64, 0)
-
-		for _, schemaName := range schemas.([]string) {
-			mcapSchemaMap[schemaName] = make(map[string][]float64)
-		}
-
-	} else {
-		return nil, fmt.Errorf("correct schema is not provided for matlab generation")
+		return utils.GetMcapSchemaMap(schemas.([]string))
 	}
 
-	return mcapSchemaMap, nil
+	return nil, fmt.Errorf("correct schema is not provided for matlab generation")
 }
