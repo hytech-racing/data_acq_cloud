@@ -3,7 +3,7 @@ package subscribers
 import "github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 
 type RawMatlabWriter struct {
-	allSignalData map[string]map[string][][]interface{}
+	allSignalData map[string]map[string][][]interface{} // {"topic": {"signalValue": { [timeValue, signalValue] }}}
 	firstTime     *float64
 }
 
@@ -31,6 +31,7 @@ func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) {
 	}
 
 	for signalName, value := range signalValues {
+		// We call this method even though we are converting back to interfaces because some data types like bools should have specific values, and we need to account for that
 		floatValue := utils.GetFloatValueOfInterface(value)
 		signalSlice := w.allSignalData[decodedMessage.Topic][signalName] // All signal data for one signal value.
 

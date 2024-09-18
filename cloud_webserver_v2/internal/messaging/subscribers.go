@@ -11,6 +11,13 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging/subscribers"
 )
 
+/*
+This is where all the subscribers live.
+KEY NOTE: NOT ALL OF THESE ARE RAN AT THE SAME TIME.
+Any publisher can send messages to any combination of these subscribers.
+Lots of the internal logic for the subscribers lives in the messaging/subscribers directory.
+*/
+
 const (
 	EOF  = "EOF_MESSAGE"
 	INIT = "INIT_MESSAGE"
@@ -154,7 +161,7 @@ func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMess
 func getInterpolatedSchemaMap(message *SubscribedMessage) (map[string]map[string][]float64, error) {
 	data := message.GetContent().Data
 
-	if schemas, found := data["schemaList"]; found {
+	if schemas, found := data["schema_list"]; found {
 		if reflect.TypeOf(schemas) != reflect.SliceOf(reflect.TypeOf("")) {
 			return nil, fmt.Errorf("correct schema is not provided for matlab generation")
 		}

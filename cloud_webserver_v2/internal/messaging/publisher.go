@@ -7,6 +7,12 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
 
+/*
+This file just serves as a way for messages (right now specifically MCAP messages) to be send to a bunch of workers working asynchronously.
+After those async workers complete, they can send a result back. Publisher doesn't do anything with those. It just collects them.
+Performing operations on those results is up to the code using the publisher.
+*/
+
 type SubscribedMessage struct {
 	content *utils.DecodedMessage
 	ctx     context.Context
@@ -82,6 +88,15 @@ func (p *Publisher) Publish(ctx context.Context, message *utils.DecodedMessage, 
 	}
 }
 
+func (p *Publisher) initCollectResults() {
+	p.resultsWg.Add(1)
+
+	go func() {
+		defer p.resultsWg.Done()
+		p.collectResults(p.results_chan)
+	}()
+}
+
 // Closes all subscriber channels
 func (p *Publisher) CloseAllSubscribers() {
 	p.mutex.Lock()
@@ -92,22 +107,15 @@ func (p *Publisher) CloseAllSubscribers() {
 	}
 }
 
+// Waits for all the subscribers to close and closes the results channel
 func (p *Publisher) WaitForClosure() {
 	p.wg.Wait()
 
+	// We don't close the results channel in CloseAllSubscribers because the subscribers return results when closed. We need to wait for those results to come in.
 	if p.results_chan != nil {
 		close(p.results_chan)
 		p.resultsWg.Wait()
 	}
-}
-
-func (p *Publisher) initCollectResults() {
-	p.resultsWg.Add(1)
-
-	go func() {
-		defer p.resultsWg.Done()
-		p.collectResults(p.results_chan)
-	}()
 }
 
 func (p *Publisher) collectResults(results_chan <-chan SubscriberResult) {
