@@ -38,15 +38,13 @@ func GeneratePlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) *io.WriterT
 	p.Y.Label.Text = "y"
 	p.HideAxes()
 
+	// Need to set the max/min for each axis of the plot or else the plot will be stretched.
 	min_value := math.Min(minX, minY)
 	max_value := math.Max(maxX, maxY)
 	p.X.Min = min_value
 	p.Y.Min = min_value
 	p.X.Max = max_value
 	p.Y.Max = max_value
-
-	log.Printf("minimum is %f, %f \n", min_value, max_value)
-	log.Printf("x: %f -> %f, y: %f -> %f \n", p.X.Min, p.X.Max, p.Y.Min, p.Y.Max)
 
 	err := plotutil.AddScatters(p, "VN Position Data", hplot.ZipXY(*xs, *ys))
 	if err != nil {

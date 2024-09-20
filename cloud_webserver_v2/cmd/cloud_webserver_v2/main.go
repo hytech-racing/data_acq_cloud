@@ -16,9 +16,19 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// TODO: Add mongo and aws s3 support, matlab and maybe weather subscriber
-// Figure out what kind of data we want to store in mongodb -> this data would be in mcap metadata
-// Need logic to actually return data
+/* TODO:
+   - [x] Dynamically decode protobuf messages
+   - [x] Add AWS S3 Support
+   - [x] Add subscriber to plot Lat/Lon data
+   - [x] Add subscriber to create raw and intepolated MATLAB files
+   - [x] Add MATLAB Writing support with Python (for now as a quick fix, eventually we should figure out a better way)
+   - [ ] Add better error handling into the server -> we want to gracefully handle errors and continue on
+   - [ ] Add better and more informative logging
+   - [ ] Add MongoDB Support
+   - [ ] Create repositories to make our database interactions clean, scalable, and extendable
+   - [ ] Add tests for all components of the server (I want to check out testcontainers it seems really nice)
+*/
+
 func main() {
 	// load .env file
 	err := godotenv.Load(".env")
@@ -35,7 +45,7 @@ func main() {
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
 
-	// Setup database
+	// Setup database our database connection
 	uri := os.Getenv("MONGODB_URI")
 	if uri == "" {
 		log.Fatal("could not get mongodb uri environment variable")
@@ -48,7 +58,7 @@ func main() {
 		}
 	}()
 
-	// Setup aws s3
+	// Setup aws s3 connection
 	aws_region := os.Getenv("AWS_REGION")
 	if aws_region == "" {
 		log.Fatal("could not get aws region environment variable")
@@ -59,6 +69,7 @@ func main() {
 		log.Fatal("could not get aws region environment variable")
 	}
 
+	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
 	s3_respository := s3.NewS3Session(aws_region, aws_bucket)
 
 	// Set a timeout value on the request context (ctx), that will signal
