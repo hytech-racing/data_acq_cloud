@@ -17,15 +17,16 @@ import (
 )
 
 /* TODO:
-- [x] Dynamically decode protobuf messages
-- [x] Add AWS S3 Support
-- [x] Add subscriber to plot Lat/Lon data
-- [x] Add subscriber to create raw and intepolated MATLAB files
-- [x] Add MATLAB Writing support with Python (for now as a quick fix, eventually we should figure out a better way)
-- [ ] Add better and more informative logging
-- [ ] Add MongoDB Support
-- [ ] Create repositories to make our database interactions clean, scalable, and extendable
-- [ ] Add tests for all components of the server (I want to check out testcontainers it seems really nice)
+   - [x] Dynamically decode protobuf messages
+   - [x] Add AWS S3 Support
+   - [x] Add subscriber to plot Lat/Lon data
+   - [x] Add subscriber to create raw and intepolated MATLAB files
+   - [x] Add MATLAB Writing support with Python (for now as a quick fix, eventually we should figure out a better way)
+   - [ ] Add better error handling into the server -> we want to gracefully handle errors and continue on
+   - [ ] Add better and more informative logging
+   - [ ] Add MongoDB Support
+   - [ ] Create repositories to make our database interactions clean, scalable, and extendable
+   - [ ] Add tests for all components of the server (I want to check out testcontainers it seems really nice)
 */
 
 func main() {

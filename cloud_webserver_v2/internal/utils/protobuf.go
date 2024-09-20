@@ -47,6 +47,7 @@ func (pb *protobufUtils) loadSchema(schema *mcap.Schema) (*desc.FileDescriptor, 
 }
 
 func (pb *protobufUtils) GetDecodedSchema(schema *mcap.Schema) (*desc.FileDescriptor, error) {
+	// If we have already decoded the schema, then we just return that
 	i, ok := pb.protoDescriptions[schema.Name]
 	if ok {
 		return i, nil

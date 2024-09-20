@@ -15,6 +15,8 @@ type S3Repository struct {
 	s3_session *S3Session
 }
 
+// Writes an object to the S3 bucket. You can think of an S3 object like a file.
+// We store all our images, MATLAB, and MCAP files here.
 func (s *S3Repository) WriteObject(ctx context.Context, writer *io.WriterTo, objectName string) {
 	var buf bytes.Buffer
 

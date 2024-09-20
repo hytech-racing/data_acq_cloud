@@ -14,7 +14,7 @@ This is the layout of how the messaging system works.
 
 ```mermaid
 flowchart TD
-    Caller[Caller] --sends data repeatedly--> PublisherClass[Publisher Instance]
+    Caller[Caller] --creates publisher instance and sends data repeatedly--> PublisherClass[Publisher Instance]
     PublisherClass --> Publisher
     PublisherClass -.creates a collection service for getting results.-> Results[Subscriber Results]
     Publisher[Publishes Message] --subscriber message--> B[Subscriber 1]

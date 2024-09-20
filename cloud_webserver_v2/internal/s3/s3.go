@@ -15,6 +15,7 @@ type S3Session struct {
 
 func NewS3Session(region string, bucket string) *S3Repository {
 	// Load aws config (.aws/config)
+	// You need to have an .aws/config file in your home directory
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 	if err != nil {
 		log.Fatalf("could not load config: %v", err)
