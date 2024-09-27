@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -45,4 +46,18 @@ func (s *S3Repository) ListObjects(ctx context.Context) {
 	}
 
 	fmt.Printf("objects are %v \n", result)
+}
+
+func (s *S3Repository) GetSignedUrl(ctx context.Context, bucket string, objectPath string) string {
+	request, err := s.s3_session.presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(objectPath),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = time.Duration(10 * int64(time.Minute))
+	})
+	if err != nil {
+		log.Fatalf("Couldn't get a presigned request to get %v:%v: %v", bucket, objectPath, err)
+	}
+
+	return request.URL
 }

@@ -72,6 +72,9 @@ func main() {
 	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
 	s3_respository := s3.NewS3Session(aws_region, aws_bucket)
 
+	a := s3_respository.GetSignedUrl(context.TODO(), "run-metadata", "object")
+	log.Print(a)
+
 	// Set a timeout value on the request context (ctx), that will signal
 	// through ctx.Done() that the request has timed out and further
 	// processing should be stopped.

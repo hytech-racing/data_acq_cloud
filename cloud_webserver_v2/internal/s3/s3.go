@@ -9,8 +9,9 @@ import (
 )
 
 type S3Session struct {
-	client *s3.Client
-	bucket string
+	client        *s3.Client
+	presignClient *s3.PresignClient
+	bucket        string
 }
 
 func NewS3Session(region string, bucket string) *S3Repository {
@@ -23,10 +24,12 @@ func NewS3Session(region string, bucket string) *S3Repository {
 
 	// Create an aws s3 service client
 	client := s3.NewFromConfig(cfg)
+	presignClient := s3.NewPresignClient(client)
 
 	session := &S3Session{
-		client: client,
-		bucket: bucket,
+		client:        client,
+		bucket:        bucket,
+		presignClient: presignClient,
 	}
 	return &S3Repository{
 		s3_session: session,
