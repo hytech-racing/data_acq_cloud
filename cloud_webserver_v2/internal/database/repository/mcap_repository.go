@@ -1,4 +1,3 @@
 package repository
 
-type mcapRepository struct {
-}
+type mcapRepository struct{}

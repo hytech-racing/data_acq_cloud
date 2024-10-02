@@ -69,11 +69,18 @@ func main() {
 		log.Fatal("could not get aws region environment variable")
 	}
 
-	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
-	s3_respository := s3.NewS3Session(aws_region, aws_bucket)
+	awsAccessKey := os.Getenv("AWS_ACCESS_KEY")
+	if awsAccessKey == "" {
+		log.Fatal("could not get aws access key environment variable")
+	}
 
-	a := s3_respository.GetSignedUrl(context.TODO(), "run-metadata", "object")
-	log.Print(a)
+	awsSecretKey := os.Getenv("AWS_SECRET_KEY")
+	if awsSecretKey == "" {
+		log.Fatal("could not get aws secret key environment variable")
+	}
+
+	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
+	s3_respository := s3.NewS3Session(awsAccessKey, awsSecretKey, aws_region, aws_bucket)
 
 	// Set a timeout value on the request context (ctx), that will signal
 	// through ctx.Done() that the request has timed out and further

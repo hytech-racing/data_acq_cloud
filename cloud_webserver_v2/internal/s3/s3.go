@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -14,10 +15,11 @@ type S3Session struct {
 	bucket        string
 }
 
-func NewS3Session(region string, bucket string) *S3Repository {
-	// Load aws config (.aws/config)
-	// You need to have an .aws/config file in your home directory
-	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+func NewS3Session(accessKey string, secretKey string, region string, bucket string) *S3Repository {
+	staticCreds := credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithRegion(region),
+		config.WithCredentialsProvider(staticCreds))
 	if err != nil {
 		log.Fatalf("could not load config: %v", err)
 	}
