@@ -19,7 +19,7 @@ import (
    - [x] Add logic for parsing decoded MCAP files
    - [x] Be able to send those messages out to subscribers
    - [x] Be able to write MATLAB files from the MCAP inputs.
-   - [ ] Store/organize those MCAP and Matlab files in AWS S3 (waiting on py_data_acq to write MCAP files with dates/other info in metadata)
+   - [ ] Store/organize those MCAP and Matlab files in AWS S3 (waiting on drivebrain to write MCAP files with dates/other info in metadata)
    - [ ] After debugging, make UploadMcap route quickly give response and perform task after responding
    - [ ] The interpolation logic is a little flawed. More docs on that is in the bookstack. We need to fix it but it is low-priority for now.
    - [ ] Once interpolation logic is fixed, write an interpolated MCAP file with the data.
