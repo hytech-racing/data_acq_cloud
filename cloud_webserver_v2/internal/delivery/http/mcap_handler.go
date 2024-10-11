@@ -85,8 +85,8 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	// This is all the subsribers relavent to this POST request. You can attach more workers here if need be.
 	subscriberMapping := make(map[string]messaging.SubscriberFunc)
 	subscriberMapping["print"] = messaging.PrintMessages
-	subscriberMapping["vn_plot"] = messaging.PlotLatLon
-	subscriberMapping["matlab_writer"] = messaging.CreateInterpolatedMatlabFile
+	// subscriberMapping["vn_plot"] = messaging.PlotLatLon
+	// subscriberMapping["matlab_writer"] = messaging.CreateInterpolatedMatlabFile
 
 	publisher := messaging.NewPublisher(true)
 	subscriber_names := make([]string, len(subscriberMapping))
@@ -136,9 +136,9 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 
 	publisher.WaitForClosure()
 
-	subscriberResults := publisher.GetResults()
-	interpolatedData := subscriberResults["matlab_writer"].ResultData["interpolated_data"]
-	utils.CreateMatlabFile(interpolatedData.(*map[string]map[string][]float64))
+	// subscriberResults := publisher.GetResults()
+	// interpolatedData := subscriberResults["matlab_writer"].ResultData["interpolated_data"]
+	// utils.CreateMatlabFile(interpolatedData.(*map[string]map[string][]float64))
 
 	// Logic to get all the misc. information
 
@@ -161,7 +161,7 @@ func (h *mcapHandler) routeMessagesToSubscribers(ctx context.Context, publisher 
 	case "vn_lat_lon":
 		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
 	default:
-		subscriberNames = append(subscriberNames, "matlab_writer")
+		subscriberNames = append(subscriberNames, "print")
 	}
 
 	publisher.Publish(ctx, decodedMessage, subscriberNames)

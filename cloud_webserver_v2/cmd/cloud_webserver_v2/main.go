@@ -9,11 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 /* TODO:
@@ -30,6 +29,7 @@ import (
 */
 
 func main() {
+	ctx := context.TODO()
 	// load .env file
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -50,12 +50,13 @@ func main() {
 	if uri == "" {
 		log.Fatal("could not get mongodb uri environment variable")
 	}
-	db := setupDB(uri)
+	db, err := database.NewDatabaseClient(ctx, uri)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	defer func() {
-		if err := db.Disconnect(context.TODO()); err != nil {
-			panic(err)
-		}
+		db.Disonnect(ctx)
 	}()
 
 	// Setup aws s3 connection
@@ -95,13 +96,4 @@ func main() {
 	handler.NewMcapHandler(router, s3_respository)
 
 	http.ListenAndServe(":8080", router)
-}
-
-func setupDB(uri string) *mongo.Client {
-	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(uri))
-	if err != nil {
-		panic(err)
-	}
-
-	return client
 }

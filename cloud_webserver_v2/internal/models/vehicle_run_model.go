@@ -12,18 +12,19 @@ type FileModel struct {
 	FileName  string `bson:"file_name"`
 }
 
-type VehicleModel struct {
-	Id            primitive.ObjectID     `bson:"_id,omitempty"`
-	Date          time.Time              `bson:"date"`
-	notes         *string                `bson:"notes, omitempty"`
-	McapFiles     []FileModel            `bson:"mcap_files"`
-	MatFiles      []FileModel            `bson:"mat_files, omitempty"`
-	ContentFiles  []FileModel            `bson:"graph_files,omitempty"`
-	Location      *string                `bson: "location,omitempty"`
-	EventType     *string                `bson:"event_type,omitempty"`
-	DynamicFields map[string]interface{} `bson:"dynamic_fields,omitempty"`
+type VehicleRunModel struct {
+	Id             primitive.ObjectID     `bson:"_id,omitempty"`
+	Date           time.Time              `bson:"date"`
+	SchemaVersions map[string]string      `bson:"schema_versions"`
+	notes          *string                `bson:"notes,omitempty"`
+	McapFiles      []FileModel            `bson:"mcap_files,omitempty"`
+	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
+	ContentFiles   []FileModel            `bson:"graph_files,omitempty"`
+	Location       *string                `bson: "location,omitempty"`
+	EventType      *string                `bson:"event_type,omitempty"`
+	DynamicFields  map[string]interface{} `bson:"dynamic_fields,omitempty"`
 }
 
-func NewVehicleModel() *VehicleModel {
-	return &VehicleModel{}
+func NewVehicleModel() *VehicleRunModel {
+	return &VehicleRunModel{}
 }
