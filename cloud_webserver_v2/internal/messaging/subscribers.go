@@ -30,31 +30,8 @@ func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, r
 	mx_accel := 0.0
 	mx_y_accel := 0.0
 	for msg := range ch {
-		// println(msg.content.LogTime)
-
-		// if msg.content.Topic != EOF {
-		// 	fmt.Printf("%v \n", msg.content.Topic)
-		// }
-
-		if msg.content.Topic == "vn_linear_accel" {
-			var x float64
-			var y float64
-			if z, found := msg.content.Data["vn_lin_ins_accel_x"]; found {
-				if fl, ok := z.(float32); ok {
-					x = float64(fl)
-				}
-			}
-
-			if z, found := msg.content.Data["vn_lin_ins_accel_y"]; found {
-				if fl, ok := z.(float32); ok {
-					y = float64(fl)
-					mx_y_accel = max(mx_y_accel, y)
-				}
-			}
-
-			if x != 0 || y != 0 {
-				mx_accel = max(mx_accel, math.Sqrt(x*x+y*y))
-			}
+		if msg.content.Topic != EOF {
+			fmt.Printf("%v \n", msg.content.Topic)
 		}
 	}
 
