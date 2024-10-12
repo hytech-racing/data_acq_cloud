@@ -16,7 +16,7 @@ type DatabaseClient struct {
 	vehicleRunRepository *repository.MongoVehicleRunRepository
 }
 
-const VehicleRunDatabase = "vehicle_run_db"
+const VehicleDataDatabase = "vehicle_data_db"
 
 func NewDatabaseClient(ctx context.Context, uri string) (*DatabaseClient, error) {
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
@@ -24,12 +24,21 @@ func NewDatabaseClient(ctx context.Context, uri string) (*DatabaseClient, error)
 		panic(err)
 	}
 
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		fmt.Println("Error pinging MongoDB:", err)
+		return nil, err
+	}
+
 	databaseClient := &DatabaseClient{
 		databaseClient: client,
 		databases:      make(map[string]*mongo.Database),
 	}
 
-	mainDatabase := databaseClient.AddDatabase(client, VehicleRunDatabase)
+	mainDatabase := databaseClient.AddDatabase(client, VehicleDataDatabase)
+	if mainDatabase == nil {
+		return nil, fmt.Errorf("could not connect to database: %v", mainDatabase)
+	}
 
 	vehicleRunRepository, err := repository.NewMongoVehicleRunRepository(client, mainDatabase)
 	if err != nil {
@@ -56,7 +65,7 @@ func (client *DatabaseClient) AddDatabase(mongoClient *mongo.Client, databaseNam
 }
 
 func (client *DatabaseClient) VehicleRunUseCase() *usecase.VehicleRunUseCase {
-	return &usecase.VehicleRunUseCase{}
+	return usecase.NewVehicleRunUseCase(client.vehicleRunRepository)
 }
 
 func (client *DatabaseClient) Disonnect(ctx context.Context) error {

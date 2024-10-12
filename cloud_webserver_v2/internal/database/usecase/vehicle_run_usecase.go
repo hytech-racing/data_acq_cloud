@@ -8,16 +8,19 @@ import (
 )
 
 type VehicleRunUseCase struct {
-	vechicleRunRepo repository.VehicleRunRepository
+	vechicleRunRepo *repository.MongoVehicleRunRepository
 }
 
-func newVehicleRunUseCase(vehicleRunRepo repository.VehicleRunRepository) *VehicleRunUseCase {
+func NewVehicleRunUseCase(vehicleRunRepo *repository.MongoVehicleRunRepository) *VehicleRunUseCase {
 	return &VehicleRunUseCase{
 		vechicleRunRepo: vehicleRunRepo,
 	}
 }
 
-func (uc *VehicleRunUseCase) CreateVehicleRun(ctx context.Context, model *models.VehicleRunModel) error {
-	uc.vechicleRunRepo.Save(ctx, model)
-	return nil
+func (uc *VehicleRunUseCase) CreateVehicleRun(ctx context.Context, model *models.VehicleRunModel) (*models.VehicleRunModel, error) {
+	model, err := uc.vechicleRunRepo.Save(ctx, model)
+	if err != nil {
+		return nil, err
+	}
+	return model, nil
 }

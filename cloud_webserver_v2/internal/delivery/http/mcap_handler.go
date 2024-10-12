@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
@@ -26,12 +27,14 @@ import (
 */
 
 type mcapHandler struct {
-	s3_repository *s3.S3Repository
+	s3Repository *s3.S3Repository
+	dbClient     *database.DatabaseClient
 }
 
-func NewMcapHandler(r *chi.Mux, s3_repository *s3.S3Repository) {
+func NewMcapHandler(r *chi.Mux, s3Repository *s3.S3Repository, dbClient *database.DatabaseClient) {
 	handler := &mcapHandler{
-		s3_repository: s3_repository,
+		s3Repository: s3Repository,
+		dbClient:     dbClient,
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {

@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -29,7 +31,9 @@ import (
 */
 
 func main() {
-	ctx := context.TODO()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// load .env file
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -50,24 +54,20 @@ func main() {
 	if uri == "" {
 		log.Fatal("could not get mongodb uri environment variable")
 	}
-	db, err := database.NewDatabaseClient(ctx, uri)
+	dbClient, err := database.NewDatabaseClient(ctx, uri)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	defer func() {
-		db.Disonnect(ctx)
-	}()
-
 	// Setup aws s3 connection
-	aws_region := os.Getenv("AWS_REGION")
-	if aws_region == "" {
+	awsRegion := os.Getenv("AWS_REGION")
+	if awsRegion == "" {
 		log.Fatal("could not get aws region environment variable")
 	}
 
-	aws_bucket := os.Getenv("AWS_S3_RUN_BUCKET")
-	if aws_region == "" {
-		log.Fatal("could not get aws region environment variable")
+	awsBucket := os.Getenv("AWS_S3_RUN_BUCKET")
+	if awsBucket == "" {
+		log.Fatal("could not get aws bucket environment variable")
 	}
 
 	awsAccessKey := os.Getenv("AWS_ACCESS_KEY")
@@ -81,7 +81,7 @@ func main() {
 	}
 
 	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
-	s3_respository := s3.NewS3Session(awsAccessKey, awsSecretKey, aws_region, aws_bucket)
+	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket)
 
 	// Set a timeout value on the request context (ctx), that will signal
 	// through ctx.Done() that the request has timed out and further
@@ -93,7 +93,29 @@ func main() {
 		w.Write([]byte("Hytech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	handler.NewMcapHandler(router, s3_respository)
+	handler.NewMcapHandler(router, s3Repository, dbClient)
 
 	http.ListenAndServe(":8080", router)
+
+	// Graceful shutdown: listen for interrupt signals
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		// Wait for a signal, then gracefully shut down
+		<-quit
+		log.Println("Shutting down server...")
+
+		// Gracefully disconnect from MongoDB
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := dbClient.Disonnect(ctx); err != nil {
+			log.Println("Error while disconnecting MongoDB:", err)
+		} else {
+			log.Println("Disconnected from MongoDB")
+		}
+
+		os.Exit(0)
+	}()
 }
