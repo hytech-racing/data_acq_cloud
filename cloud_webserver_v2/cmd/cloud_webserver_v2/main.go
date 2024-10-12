@@ -90,12 +90,10 @@ func main() {
 
 	router.Mount("/api/v2", router)
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hytech Data Acquisition and Operations Cloud Webserver"))
+		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
 	handler.NewMcapHandler(router, s3Repository, dbClient)
-
-	http.ListenAndServe(":8080", router)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
@@ -104,13 +102,14 @@ func main() {
 	go func() {
 		// Wait for a signal, then gracefully shut down
 		<-quit
+		println()
 		log.Println("Shutting down server...")
 
 		// Gracefully disconnect from MongoDB
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		mongoShutdownCtx, mongoShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer mongoShutdownCancel()
 
-		if err := dbClient.Disonnect(ctx); err != nil {
+		if err := dbClient.Disonnect(mongoShutdownCtx); err != nil {
 			log.Println("Error while disconnecting MongoDB:", err)
 		} else {
 			log.Println("Disconnected from MongoDB")
@@ -118,4 +117,6 @@ func main() {
 
 		os.Exit(0)
 	}()
+
+	http.ListenAndServe(":8080", router)
 }
