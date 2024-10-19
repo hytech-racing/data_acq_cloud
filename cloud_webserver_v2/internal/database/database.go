@@ -12,7 +12,6 @@ import (
 
 type DatabaseClient struct {
 	databaseClient       *mongo.Client
-	databases            map[string]*mongo.Database
 	vehicleRunRepository *repository.MongoVehicleRunRepository
 }
 
@@ -32,36 +31,20 @@ func NewDatabaseClient(ctx context.Context, uri string) (*DatabaseClient, error)
 
 	databaseClient := &DatabaseClient{
 		databaseClient: client,
-		databases:      make(map[string]*mongo.Database),
 	}
 
-	mainDatabase := databaseClient.AddDatabase(client, VehicleDataDatabase)
-	if mainDatabase == nil {
-		return nil, fmt.Errorf("could not connect to database: %v", mainDatabase)
+	vehicleDataDatabase := client.Database(VehicleDataDatabase)
+	if vehicleDataDatabase == nil {
+		return nil, fmt.Errorf("could not connect to database: %v", vehicleDataDatabase)
 	}
 
-	vehicleRunRepository, err := repository.NewMongoVehicleRunRepository(client, mainDatabase)
+	vehicleRunRepository, err := repository.NewMongoVehicleRunRepository(client, vehicleDataDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("could not create vechicleRunRepository: %v", err)
 	}
 	databaseClient.vehicleRunRepository = vehicleRunRepository
 
 	return databaseClient, nil
-}
-
-func (client *DatabaseClient) AddDatabase(mongoClient *mongo.Client, databaseName string) *mongo.Database {
-	db, ok := client.databases[databaseName]
-	if ok {
-		return db
-	}
-
-	newDatabase := client.databaseClient.Database(databaseName)
-
-	if newDatabase != nil {
-		client.databases[databaseName] = newDatabase
-	}
-
-	return newDatabase
 }
 
 func (client *DatabaseClient) VehicleRunUseCase() *usecase.VehicleRunUseCase {
