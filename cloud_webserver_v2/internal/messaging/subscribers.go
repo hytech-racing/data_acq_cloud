@@ -27,6 +27,8 @@ const (
 type SubscriberFunc func(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult)
 
 func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	mx_accel := 0.0
+	mx_y_accel := 0.0
 	for msg := range ch {
 		if msg.content.Topic != EOF {
 			fmt.Printf("%v \n", msg.content.Topic)
@@ -36,6 +38,8 @@ func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, r
 	result := make(map[string]interface{})
 	result["out"] = "Done printing"
 
+	fmt.Println(mx_accel)
+	fmt.Println(mx_y_accel)
 	if results != nil {
 		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
 	}

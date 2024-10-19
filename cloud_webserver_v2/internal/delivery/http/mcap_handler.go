@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
@@ -19,19 +20,21 @@ import (
    - [x] Add logic for parsing decoded MCAP files
    - [x] Be able to send those messages out to subscribers
    - [x] Be able to write MATLAB files from the MCAP inputs.
-   - [ ] Store/organize those MCAP and Matlab files in AWS S3 (waiting on py_data_acq to write MCAP files with dates/other info in metadata)
+   - [ ] Store/organize those MCAP and Matlab files in AWS S3 (waiting on drivebrain to write MCAP files with dates/other info in metadata)
    - [ ] After debugging, make UploadMcap route quickly give response and perform task after responding
    - [ ] The interpolation logic is a little flawed. More docs on that is in the bookstack. We need to fix it but it is low-priority for now.
    - [ ] Once interpolation logic is fixed, write an interpolated MCAP file with the data.
 */
 
 type mcapHandler struct {
-	s3_repository *s3.S3Repository
+	s3Repository *s3.S3Repository
+	dbClient     *database.DatabaseClient
 }
 
-func NewMcapHandler(r *chi.Mux, s3_repository *s3.S3Repository) {
+func NewMcapHandler(r *chi.Mux, s3Repository *s3.S3Repository, dbClient *database.DatabaseClient) {
 	handler := &mcapHandler{
-		s3_repository: s3_repository,
+		s3Repository: s3Repository,
+		dbClient:     dbClient,
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
@@ -85,8 +88,8 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	// This is all the subsribers relavent to this POST request. You can attach more workers here if need be.
 	subscriberMapping := make(map[string]messaging.SubscriberFunc)
 	subscriberMapping["print"] = messaging.PrintMessages
-	subscriberMapping["vn_plot"] = messaging.PlotLatLon
-	subscriberMapping["matlab_writer"] = messaging.CreateInterpolatedMatlabFile
+	// subscriberMapping["vn_plot"] = messaging.PlotLatLon
+	// subscriberMapping["matlab_writer"] = messaging.CreateInterpolatedMatlabFile
 
 	publisher := messaging.NewPublisher(true)
 	subscriber_names := make([]string, len(subscriberMapping))
@@ -136,9 +139,9 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 
 	publisher.WaitForClosure()
 
-	subscriberResults := publisher.GetResults()
-	interpolatedData := subscriberResults["matlab_writer"].ResultData["interpolated_data"]
-	utils.CreateMatlabFile(interpolatedData.(*map[string]map[string][]float64))
+	// subscriberResults := publisher.GetResults()
+	// interpolatedData := subscriberResults["matlab_writer"].ResultData["interpolated_data"]
+	// utils.CreateMatlabFile(interpolatedData.(*map[string]map[string][]float64))
 
 	// Logic to get all the misc. information
 
@@ -161,7 +164,7 @@ func (h *mcapHandler) routeMessagesToSubscribers(ctx context.Context, publisher 
 	case "vn_lat_lon":
 		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
 	default:
-		subscriberNames = append(subscriberNames, "matlab_writer")
+		subscriberNames = append(subscriberNames, "print")
 	}
 
 	publisher.Publish(ctx, decodedMessage, subscriberNames)
