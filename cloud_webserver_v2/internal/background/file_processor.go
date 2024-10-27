@@ -2,6 +2,7 @@ package background
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
 
 const (
@@ -126,20 +130,104 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 		case <-fp.stopChan:
 			return
 		case job := <-fp.queueChan:
-			fp.setCurrentlyProcessing(true)
+			log.Printf("Starting job %v", job.ID)
 			if err := fp.processFileJob(job); err != nil {
 				log.Printf("Failed to process file %s: %v", job.Filename, err)
 				fp.updateJobStatus(job, StatusFailed)
 				// TODO: Add job status to database
 			}
+			log.Printf("Completed job %v", job.ID)
 		}
 	}
 }
 
 func (fp *FileProcessor) processFileJob(job *FileJob) error {
+	ctx := context.TODO()
+	fp.setCurrentlyProcessing(true)
 	fp.updateJobStatus(job, StatusProcessing)
 
 	// file processing logic here
+	file, err := os.Open(job.FilePath)
+	if err != nil {
+		return fmt.Errorf("could not open file %v, received error %v", job.Filename, err)
+	}
+	defer file.Close()
+	log.Printf("Opened file %v", job.Filename)
+
+	mcapUtils := utils.NewMcapUtils()
+
+	reader, err := mcapUtils.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("could not create mcap reader: %v", err)
+	}
+
+	schemaList, err := mcapUtils.GetMcapSchemaList(reader)
+	if err != nil {
+		return err
+	}
+
+	message_iterator, err := reader.Messages()
+	if err != nil {
+		return fmt.Errorf("could not get mcap mesages: %v", err)
+	}
+
+	// This is all the subsribers relavent to this POST request. You can attach more workers here if need be.
+	subscriberMapping := make(map[string]messaging.SubscriberFunc)
+	subscriberMapping["print"] = messaging.PrintMessages
+	// subscriberMapping["vn_plot"] = messaging.PlotLatLon
+	// subscriberMapping["matlab_writer"] = messaging.CreateInterpolatedMatlabFile
+
+	publisher := messaging.NewPublisher(true)
+	subscriber_names := make([]string, len(subscriberMapping))
+	idx := 0
+	for subscriber_name, function := range subscriberMapping {
+		subscriber_names[idx] = subscriber_name
+		publisher.Subscribe(idx+1, subscriber_name, function)
+		idx++
+	}
+
+	go func() {
+		// Some subscribers may need specfic information before being able to perform their tasks. For example, (CreateInterpolatedMatlabFile)
+		// Because of this, they will need their first message to set paramaters. This is what initMessage is for.
+		initMessage := make(map[string]interface{})
+		initMessage["schema_list"] = schemaList
+		fp.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
+
+		for {
+			schema, channel, message, err := message_iterator.NextInto(nil)
+
+			// Checks if we have no more messages to read from the MCAP. If so, it lets the subscribers know
+			if errors.Is(err, io.EOF) {
+				fp.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
+				break
+			}
+
+			if err != nil {
+				log.Println("error reading mcap message: %v", err)
+				return
+			}
+
+			if schema == nil {
+				log.Printf("no schema found for channel ID: %d, channel: %v", message.ChannelID, channel)
+				continue
+			}
+
+			decodedMessage, err := mcapUtils.GetDecodedMessage(schema, message)
+			if err != nil {
+				log.Printf("could not decode message: %v", err)
+				continue
+			}
+
+			fp.routeMessagesToSubscribers(ctx, publisher, &decodedMessage, &subscriber_names)
+		}
+
+		// Need to make sure to close the subscribers or our code will hang and wait forever
+		publisher.CloseAllSubscribers()
+	}()
+
+	publisher.WaitForClosure()
+
+	log.Printf("All subscribers finished for job $v", job.ID)
 
 	// After successful processing, remove the file and update total size
 	if err := os.Remove(job.FilePath); err != nil {
@@ -149,8 +237,23 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	fp.TotalSize.Add(-job.Size)
 	fp.MiddlewareEstimatedSize.Add(-job.Size)
 	fp.updateJobStatus(job, StatusCompleted)
-	fp.activelyProcessing = false
+	fp.setCurrentlyProcessing(false)
 	return nil
+}
+
+func (fp *FileProcessor) routeMessagesToSubscribers(ctx context.Context, publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
+	// List of all the workers we want to send the messages to
+	var subscriberNames []string
+	switch topic := decodedMessage.Topic; topic {
+	case messaging.EOF:
+		subscriberNames = append(subscriberNames, *allNames...)
+	case "vn_lat_lon":
+		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
+	default:
+		subscriberNames = append(subscriberNames, "print")
+	}
+
+	publisher.Publish(ctx, decodedMessage, subscriberNames)
 }
 
 func (fp *FileProcessor) updateJobStatus(job *FileJob, status string) {

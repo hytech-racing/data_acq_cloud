@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/render"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
@@ -189,13 +190,19 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	defer r.MultipartForm.RemoveAll()
 
 	files := r.MultipartForm.File["files"]
-	// jobIds := make([]string, 0, len(files))
+	jobIds := make([]string, 0, len(files))
 	for _, fileHeader := range files {
-		_, err := h.fileProcessor.QueueFile(fileHeader)
+		job, err := h.fileProcessor.QueueFile(fileHeader)
 		if err != nil {
 			log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
 			continue
 		}
-		// jobIds = append(jobIds, job.ID)
+		jobIds = append(jobIds, job.ID)
 	}
+
+	response := make(map[string]interface{})
+	response["message"] = "created file processing jobs"
+	response["data"] = jobIds
+
+	render.JSON(w, r, response)
 }

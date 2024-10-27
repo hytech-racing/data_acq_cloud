@@ -4,6 +4,7 @@ go 1.22.3
 
 require (
 	git.sr.ht/~sbinet/gg v0.5.0 // indirect
+	github.com/ajg/form v1.5.1 // indirect
 	github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b // indirect
 	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.3 // indirect
@@ -29,6 +30,7 @@ require (
 	github.com/foxglove/mcap/go/mcap v1.4.1 // indirect
 	github.com/go-chi/chi/v5 v5.1.0 // indirect
 	github.com/go-chi/httplog/v2 v2.1.1 // indirect
+	github.com/go-chi/render v1.0.3 // indirect
 	github.com/go-fonts/liberation v0.3.3 // indirect
 	github.com/go-latex/latex v0.0.0-20240709081214-31cef3c7570e // indirect
 	github.com/go-pdf/fpdf v0.9.0 // indirect

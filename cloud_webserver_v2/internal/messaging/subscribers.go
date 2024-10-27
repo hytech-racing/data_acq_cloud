@@ -31,7 +31,10 @@ func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, r
 	mx_y_accel := 0.0
 	for msg := range ch {
 		if msg.content.Topic != EOF {
-			fmt.Printf("%v \n", msg.content.Topic)
+			// fmt.Printf("%v \n", msg.content.Topic)
+		}
+		if msg.content.Topic == EOF {
+			fmt.Println("EOF LMAO")
 		}
 	}
 
