@@ -10,8 +10,10 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
+	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
@@ -27,18 +29,27 @@ import (
 */
 
 type mcapHandler struct {
-	s3Repository *s3.S3Repository
-	dbClient     *database.DatabaseClient
+	s3Repository  *s3.S3Repository
+	dbClient      *database.DatabaseClient
+	fileProcessor *background.FileProcessor
 }
 
-func NewMcapHandler(r *chi.Mux, s3Repository *s3.S3Repository, dbClient *database.DatabaseClient) {
+func NewMcapHandler(
+	r *chi.Mux,
+	s3Repository *s3.S3Repository,
+	dbClient *database.DatabaseClient,
+	fileProcessor *background.FileProcessor,
+	fileUploadMiddleware *hytech_middleware.FileUploadMiddleware,
+) {
 	handler := &mcapHandler{
-		s3Repository: s3Repository,
-		dbClient:     dbClient,
+		s3Repository:  s3Repository,
+		dbClient:      dbClient,
+		fileProcessor: fileProcessor,
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
-		r.Post("/upload", handler.UploadMcap)
+		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
+		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
 	})
 }
 
@@ -168,4 +179,23 @@ func (h *mcapHandler) routeMessagesToSubscribers(ctx context.Context, publisher 
 	}
 
 	publisher.Publish(ctx, decodedMessage, subscriberNames)
+}
+
+func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+
+	files := r.MultipartForm.File["files"]
+	// jobIds := make([]string, 0, len(files))
+	for _, fileHeader := range files {
+		_, err := h.fileProcessor.QueueFile(fileHeader)
+		if err != nil {
+			log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
+			continue
+		}
+		// jobIds = append(jobIds, job.ID)
+	}
 }

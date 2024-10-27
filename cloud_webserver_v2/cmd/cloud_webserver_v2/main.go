@@ -11,8 +11,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
+	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
 )
@@ -40,14 +42,6 @@ func main() {
 		log.Fatalf("Error loading .env file %s", err)
 	}
 	router := chi.NewRouter()
-
-	// Simple middleware stack
-	// r.Use(httplog.RequestLogger(logger))
-	router.Use(middleware.Logger)
-	router.Use(middleware.Heartbeat("/ping"))
-	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
-	router.Use(middleware.Recoverer)
 
 	// Setup database our database connection
 	uri := os.Getenv("MONGODB_URI")
@@ -80,6 +74,29 @@ func main() {
 		log.Fatal("could not get aws secret key environment variable")
 	}
 
+	// Create file fileProcessor with 10GB limit
+	fileProcessor, err := background.NewFileProcessor(
+		"./uploads",
+		10*1024*1024*1024, // 10GB
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fileProcessor.Start(ctx)
+
+	fileUploadMiddleware := hytech_middleware.FileUploadMiddleware{
+		FileProcessor: fileProcessor,
+	}
+
+	// Simple middleware stack
+	// r.Use(httplog.RequestLogger(logger))
+	router.Use(middleware.Logger)
+	router.Use(middleware.Heartbeat("/ping"))
+	router.Use(middleware.RequestID)
+	router.Use(middleware.RealIP)
+	router.Use(middleware.Recoverer)
+
 	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
 	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket)
 
@@ -93,7 +110,7 @@ func main() {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	handler.NewMcapHandler(router, s3Repository, dbClient)
+	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
@@ -104,6 +121,9 @@ func main() {
 		<-quit
 		println()
 		log.Println("Shutting down server...")
+
+		log.Println("Waiting for file processor to finish...")
+		fileProcessor.Stop()
 
 		// Gracefully disconnect from MongoDB
 		mongoShutdownCtx, mongoShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
