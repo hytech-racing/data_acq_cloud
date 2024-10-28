@@ -142,7 +142,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 				log.Printf("could not decode message: %v", err)
 			}
 
-			h.routeMessagesToSubscribers(ctx, publisher, &decodedMessage, &subscriber_names)
+			h.routeMessagesToSubscribers(ctx, publisher, decodedMessage, &subscriber_names)
 		}
 
 		// Need to make sure to close the subscribers or our code will hang and wait forever

@@ -130,18 +130,17 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 		case <-fp.stopChan:
 			return
 		case job := <-fp.queueChan:
-			log.Printf("Starting job %v", job.ID)
 			if err := fp.processFileJob(job); err != nil {
 				log.Printf("Failed to process file %s: %v", job.Filename, err)
 				fp.updateJobStatus(job, StatusFailed)
 				// TODO: Add job status to database
 			}
-			log.Printf("Completed job %v", job.ID)
 		}
 	}
 }
 
 func (fp *FileProcessor) processFileJob(job *FileJob) error {
+	log.Printf("Starting job %v", job.ID)
 	ctx := context.TODO()
 	fp.setCurrentlyProcessing(true)
 	fp.updateJobStatus(job, StatusProcessing)
@@ -161,6 +160,13 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		return fmt.Errorf("could not create mcap reader: %v", err)
 	}
 
+	info, err := reader.Info()
+	if err != nil {
+		return fmt.Errorf("could not get info for mcap reader: %v", err)
+	}
+
+	mcapUtils.LoadAllSchemas(info)
+
 	schemaList, err := mcapUtils.GetMcapSchemaList(reader)
 	if err != nil {
 		return err
@@ -171,7 +177,7 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		return fmt.Errorf("could not get mcap mesages: %v", err)
 	}
 
-	// This is all the subsribers relavent to this POST request. You can attach more workers here if need be.
+	// This is all the subsribers relavent to handling an MCAP file. You can attach more workers here if need be.
 	subscriberMapping := make(map[string]messaging.SubscriberFunc)
 	subscriberMapping["print"] = messaging.PrintMessages
 	// subscriberMapping["vn_plot"] = messaging.PlotLatLon
@@ -186,6 +192,7 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		idx++
 	}
 
+	log.Printf("Starting subsribers for job: %s", job.ID)
 	go func() {
 		// Some subscribers may need specfic information before being able to perform their tasks. For example, (CreateInterpolatedMatlabFile)
 		// Because of this, they will need their first message to set paramaters. This is what initMessage is for.
@@ -218,7 +225,7 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 				continue
 			}
 
-			fp.routeMessagesToSubscribers(ctx, publisher, &decodedMessage, &subscriber_names)
+			fp.routeMessagesToSubscribers(ctx, publisher, decodedMessage, &subscriber_names)
 		}
 
 		// Need to make sure to close the subscribers or our code will hang and wait forever
@@ -238,6 +245,8 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	fp.MiddlewareEstimatedSize.Add(-job.Size)
 	fp.updateJobStatus(job, StatusCompleted)
 	fp.setCurrentlyProcessing(false)
+
+	log.Printf("Completed job %v", job.ID)
 	return nil
 }
 
