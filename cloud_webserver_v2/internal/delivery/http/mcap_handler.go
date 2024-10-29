@@ -2,16 +2,15 @@ package http
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io"
 	"log"
-	"math"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/render"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
+	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
@@ -27,18 +26,27 @@ import (
 */
 
 type mcapHandler struct {
-	s3Repository *s3.S3Repository
-	dbClient     *database.DatabaseClient
+	s3Repository  *s3.S3Repository
+	dbClient      *database.DatabaseClient
+	fileProcessor *background.FileProcessor
 }
 
-func NewMcapHandler(r *chi.Mux, s3Repository *s3.S3Repository, dbClient *database.DatabaseClient) {
+func NewMcapHandler(
+	r *chi.Mux,
+	s3Repository *s3.S3Repository,
+	dbClient *database.DatabaseClient,
+	fileProcessor *background.FileProcessor,
+	fileUploadMiddleware *hytech_middleware.FileUploadMiddleware,
+) {
 	handler := &mcapHandler{
-		s3Repository: s3Repository,
-		dbClient:     dbClient,
+		s3Repository:  s3Repository,
+		dbClient:      dbClient,
+		fileProcessor: fileProcessor,
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
-		r.Post("/upload", handler.UploadMcap)
+		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
+		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
 	})
 }
 
@@ -50,109 +58,27 @@ It currently:
   - creates a raw (no calculations performed onto it) MATLAB file
 */
 func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
 
-	// Handles the file input from the HTTP Request
-	err := r.ParseMultipartForm(int64(math.Pow(10, 9)))
+	file := r.MultipartForm.File["file"]
+	jobIds := make([]string, 1, len(file))
+	fileHeader := file[0]
+	job, err := h.fileProcessor.QueueFile(fileHeader)
 	if err != nil {
-		fmt.Errorf("cloud not parse mutlipart form")
+		log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
+		return
 	}
+	jobIds[0] = job.ID
 
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		fmt.Errorf("could not get the mcap file")
-	}
-	defer file.Close()
+	response := make(map[string]interface{})
+	response["message"] = "created file processing job"
+	response["data"] = jobIds
 
-	log.Printf("Uploaded file: %+v", handler.Filename)
-	log.Printf("File size: %+v", handler.Size)
-	log.Printf("MIME Header: %+v", handler.Header)
-
-	mcapUtils := utils.NewMcapUtils()
-
-	reader, err := mcapUtils.NewReader(file)
-	if err != nil {
-		fmt.Errorf("could not create mcap reader")
-	}
-
-	schemaList, err := mcapUtils.GetMcapSchemaList(reader)
-	if err != nil {
-		log.Panicf("%v", err)
-	}
-
-	message_iterator, err := reader.Messages()
-	if err != nil {
-		fmt.Errorf("could not get mcap mesages")
-	}
-
-	// This is all the subsribers relavent to this POST request. You can attach more workers here if need be.
-	subscriberMapping := make(map[string]messaging.SubscriberFunc)
-	subscriberMapping["print"] = messaging.PrintMessages
-	// subscriberMapping["vn_plot"] = messaging.PlotLatLon
-	// subscriberMapping["matlab_writer"] = messaging.CreateInterpolatedMatlabFile
-
-	publisher := messaging.NewPublisher(true)
-	subscriber_names := make([]string, len(subscriberMapping))
-	idx := 0
-	for subscriber_name, function := range subscriberMapping {
-		subscriber_names[idx] = subscriber_name
-		publisher.Subscribe(idx+1, subscriber_name, function)
-		idx++
-	}
-
-	go func() {
-		// Some subscribers may need specfic information before being able to perform their tasks. For example, (CreateInterpolatedMatlabFile)
-		// Because of this, they will need their first message to set paramaters. This is what initMessage is for.
-		initMessage := make(map[string]interface{})
-		initMessage["schema_list"] = schemaList
-		h.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
-
-		for {
-			schema, channel, message, err := message_iterator.NextInto(nil)
-
-			// Checks if we have no more messages to read from the MCAP. If so, it lets the subscribers know
-			if errors.Is(err, io.EOF) {
-				h.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
-				break
-			}
-
-			if err != nil {
-				log.Fatalf("error reading mcap message: %v", err)
-			}
-
-			if schema == nil {
-				log.Printf("no schema found for channel ID: %d, channel: %v", message.ChannelID, channel)
-				continue
-			}
-
-			decodedMessage, err := mcapUtils.GetDecodedMessage(schema, message)
-			if err != nil {
-				log.Printf("could not decode message: %v", err)
-			}
-
-			h.routeMessagesToSubscribers(ctx, publisher, &decodedMessage, &subscriber_names)
-		}
-
-		// Need to make sure to close the subscribers or our code will hang and wait forever
-		publisher.CloseAllSubscribers()
-	}()
-
-	publisher.WaitForClosure()
-
-	// subscriberResults := publisher.GetResults()
-	// interpolatedData := subscriberResults["matlab_writer"].ResultData["interpolated_data"]
-	// utils.CreateMatlabFile(interpolatedData.(*map[string]map[string][]float64))
-
-	// Logic to get all the misc. information
-
-	//TODO:
-	/*
-		Upload files to the AWS s3_repository
-		Compile all data to store in MongoDB database
-		Cleanup
-	*/
-
-	fmt.Println("All Subscribers finished")
+	render.JSON(w, r, response)
 }
 
 func (h *mcapHandler) routeMessagesToSubscribers(ctx context.Context, publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
@@ -168,4 +94,29 @@ func (h *mcapHandler) routeMessagesToSubscribers(ctx context.Context, publisher 
 	}
 
 	publisher.Publish(ctx, decodedMessage, subscriberNames)
+}
+
+func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+
+	files := r.MultipartForm.File["files"]
+	jobIds := make([]string, 0, len(files))
+	for _, fileHeader := range files {
+		job, err := h.fileProcessor.QueueFile(fileHeader)
+		if err != nil {
+			log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
+			continue
+		}
+		jobIds = append(jobIds, job.ID)
+	}
+
+	response := make(map[string]interface{})
+	response["message"] = "created file processing jobs"
+	response["data"] = jobIds
+
+	render.JSON(w, r, response)
 }
