@@ -1,0 +1,8 @@
+services:
+  cloud_webserver_v2:
+    build: ../cloud_webserver_v2
+    ports:
+      - "8081:8080"
+    env_file:
+      - ../cloud_webserver_v2/.env
+ 
