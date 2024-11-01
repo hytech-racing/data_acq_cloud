@@ -1,0 +1,4 @@
+<domain> {
+    reverse_proxy :8080
+    tls /etc/letsencrypt/live/<domain>/fullchain.pem /etc/letsencrypt/live/<domain>/privkey.pem
+}

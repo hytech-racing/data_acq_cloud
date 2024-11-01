@@ -1,0 +1,10 @@
+[Interface]
+Address = 10.10.0.1/32
+PrivateKey = ${PRIVATE_KEY}
+ListenPort = 51820
+PostUp = sysctl -w net.ipv4.ip_forward=1
+PostDown = sysctl -w net.ipv4.ip_forward=0
+
+[Peer]
+PublicKey = <person_1_publickey>
+AllowedIPs = 10.10.0.2/32

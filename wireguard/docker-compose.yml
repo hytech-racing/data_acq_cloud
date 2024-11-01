@@ -1,0 +1,44 @@
+services:
+  wireguard:
+    build:
+      context: ./wireguard
+      dockerfile: Dockerfile
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - ./wireguard/wg0.conf.template:/etc/wireguard/wg0.conf.template
+      - ./wireguard/keys:/etc/wireguard/keys
+    restart: unless-stopped
+    environment:
+      - WG_PORT=51820
+      - PRIVATE_KEY=${PRIVATE_KEY}
+    
+  caddy:
+    image: caddy:latest
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - /etc/letsencrypt:/etc/letsencrypt  
+    ports:
+      - "80:80"    # HTTP ? 
+      - "443:443"  # HTTPS ?
+    restart: unless-stopped
+    environment:
+      - ACME_AGREE=true
+    command: >
+      sh -c "chown -R root:caddy /etc/letsencrypt && chmod -R 750 /etc/letsencrypt && caddy run --config /etc/caddy/Caddyfile --watch"
+
+
+  cloud_webserver_v2:
+    build:
+      context: ../cloud_webserver_v2
+    container_name: cloud_webserver_v2
+    expose:
+      - "8080"  # Port that Caddy will use
+    env_file:
+      - ../cloud_webserver_v2/.env
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
