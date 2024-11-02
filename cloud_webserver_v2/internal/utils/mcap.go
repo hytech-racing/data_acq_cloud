@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 
 	"github.com/foxglove/mcap/go/mcap"
@@ -122,16 +123,23 @@ func GetMcapSchemaMap(schemaList []string) (map[string]map[string][]float64, err
 }
 
 func GetFloatValueOfInterface(val interface{}) float64 {
+	if val == nil {
+		return 0
+	}
+
 	var out float64
 
 	switch x := val.(type) {
-	case int32:
+	case float32:
 		out = float64(x)
 	case uint64:
 		out = float64(x)
-	case float32:
+	case int32:
 		out = float64(x)
 	case string:
+		if x == "" {
+			return 0
+		}
 		i, err := strconv.Atoi(x)
 		if err != nil {
 			panic(err)
@@ -143,6 +151,14 @@ func GetFloatValueOfInterface(val interface{}) float64 {
 		} else {
 			out = 0
 		}
+	}
+
+	if math.IsInf(out, 1) {
+		out = math.MaxFloat32
+	} else if math.IsInf(out, -1) {
+		out = math.SmallestNonzeroFloat32
+	} else if math.IsNaN(out) {
+		out = math.MaxFloat32
 	}
 
 	return out

@@ -18,7 +18,7 @@ type S3Repository struct {
 
 // Writes an object to the S3 bucket. You can think of an S3 object like a file.
 // We store all our images, MATLAB, and MCAP files here.
-func (s *S3Repository) WriteObject(ctx context.Context, writer *io.WriterTo, objectName string) {
+func (s *S3Repository) WriteObjectWriterTo(ctx context.Context, writer *io.WriterTo, objectName string) error {
 	var buf bytes.Buffer
 
 	_, err := (*writer).WriteTo(&buf)
@@ -33,9 +33,25 @@ func (s *S3Repository) WriteObject(ctx context.Context, writer *io.WriterTo, obj
 		Body:   reader,
 	})
 	if err != nil {
-		log.Printf("Couldn't upload file %v to %v:%v. Here's why: %v\n",
+		return fmt.Errorf("Couldn't upload file %v to %v:%v. Here's why: %v\n",
 			objectName, s.s3_session.bucket, objectName, err)
 	}
+
+	return nil
+}
+
+func (s *S3Repository) WriteObjectReader(ctx context.Context, reader io.Reader, objectName string) error {
+	_, err := s.s3_session.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(s.s3_session.bucket),
+		Key:    aws.String(objectName),
+		Body:   reader,
+	})
+	if err != nil {
+		return fmt.Errorf("Couldn't upload file %v to %v:%v. Here's why: %v\n",
+			objectName, s.s3_session.bucket, objectName, err)
+	}
+
+	return nil
 }
 
 func (s *S3Repository) ListObjects(ctx context.Context) {
@@ -60,4 +76,8 @@ func (s *S3Repository) GetSignedUrl(ctx context.Context, bucket string, objectPa
 	}
 
 	return request.URL
+}
+
+func (s *S3Repository) Bucket() string {
+	return s.s3_session.bucket
 }

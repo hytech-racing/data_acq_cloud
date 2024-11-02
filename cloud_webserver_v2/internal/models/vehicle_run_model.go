@@ -20,7 +20,7 @@ type VehicleRunModel struct {
 	McapFiles      []FileModel            `bson:"mcap_files,omitempty"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
 	ContentFiles   []FileModel            `bson:"graph_files,omitempty"`
-	Location       *string                `bson: "location,omitempty"`
+	Location       *string                `bson:"location,omitempty"`
 	EventType      *string                `bson:"event_type,omitempty"`
 	DynamicFields  map[string]interface{} `bson:"dynamic_fields,omitempty"`
 }

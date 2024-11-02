@@ -151,13 +151,16 @@ func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMess
 			matlabWriter = subscribers.CreateRawMatlabWriter()
 		} else {
 			if matlabWriter != nil {
-				matlabWriter.AddSignalValue(msg.GetContent())
+				err := matlabWriter.AddSignalValue(msg.GetContent())
+				if err != nil {
+					log.Fatal(err)
+				}
 			}
 		}
 	}
 
 	result := make(map[string]interface{})
-	allSignalData := matlabWriter.GetAllSignalData()
+	allSignalData := matlabWriter.AllSignalData()
 	result["raw_data"] = &allSignalData
 
 	if results != nil {

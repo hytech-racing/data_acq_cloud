@@ -126,7 +126,7 @@ func (p *Publisher) collectResults(results_chan <-chan SubscriberResult) {
 	}
 }
 
-func (p *Publisher) GetResults() map[string]SubscriberResult {
+func (p *Publisher) Results() map[string]SubscriberResult {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	return p.end_results
