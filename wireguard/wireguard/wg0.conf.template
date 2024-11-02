@@ -6,5 +6,5 @@ PostUp = sysctl -w net.ipv4.ip_forward=1
 PostDown = sysctl -w net.ipv4.ip_forward=0
 
 [Peer]
-PublicKey = <person_1_publickey>
+PublicKey = <p1pubkey>
 AllowedIPs = 10.10.0.2/32

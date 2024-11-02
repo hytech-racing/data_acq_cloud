@@ -1,0 +1,4 @@
+christineyewonkim.com {
+    reverse_proxy :8080
+    tls /etc/letsencrypt/live/christineyewonkim.com/fullchain.pem /etc/letsencrypt/live/christineyewonkim.com/privkey.pem
+}
