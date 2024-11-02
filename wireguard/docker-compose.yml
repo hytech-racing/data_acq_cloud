@@ -31,6 +31,7 @@ services:
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - /etc/letsencrypt:/etc/letsencrypt 
+    ports:
       - "80:80" # HTTP
       - "443:443"  # HTTPS
     restart: unless-stopped
