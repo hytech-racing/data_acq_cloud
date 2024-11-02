@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -11,8 +12,10 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 /* TODO: for MCAP handler:
@@ -47,16 +50,71 @@ func NewMcapHandler(
 	r.Route("/mcaps", func(r chi.Router) {
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
+		r.Get("/get", handler.GetMcaps)
 	})
 }
 
-/*
-This route takes an MCAP file and performs a series of actions on it.
-It currently:
-  - plots the vectornav lat/lon onto a cartesian plane
-  - creates an interpolated MATLAB file
-  - creates a raw (no calculations performed onto it) MATLAB file
-*/
+func (h *mcapHandler) GetMcaps(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	queryParams := r.URL.Query()
+
+	filters := models.VehicleRunModelFilters{}
+
+	if queryParams.Has("id") {
+		id, err := primitive.ObjectIDFromHex(queryParams.Get("id"))
+		if err == nil {
+			filters.ID = &id
+		}
+	}
+
+	utcFormat := "2006-01-02T15:04:05Z07:00"
+	if queryParams.Has("before_date") {
+		beforeDate := queryParams.Get("before_date")
+		parsedBeforeDate, err := time.Parse(utcFormat, beforeDate)
+		if err == nil {
+			filters.BeforeDate = &parsedBeforeDate
+		}
+	}
+
+	if queryParams.Has("after_date") {
+		afterDate := queryParams.Get("after_date")
+		parsedAfterDate, err := time.Parse(utcFormat, afterDate)
+		if err == nil {
+			filters.AfterDate = &parsedAfterDate
+		}
+	}
+
+	if queryParams.Has("location") {
+		location := queryParams.Get("location")
+		filters.Location = &location
+	}
+
+	if queryParams.Has("event_type") {
+		eventType := queryParams.Get("event_type")
+		filters.EventType = &eventType
+	}
+
+	if queryParams.Has("car_model") {
+		carModel := queryParams.Get("car_model")
+		filters.CarModel = &carModel
+	}
+
+	if queryParams.Has("search_text") {
+		search_text := queryParams.Get("search_text")
+		filters.SearchText = &search_text
+	}
+
+	res, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	data := make(map[string]interface{})
+	data["data"] = res
+	data["message"] = make(map[string]interface{})
+	render.JSON(w, r, data)
+}
+
 func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
