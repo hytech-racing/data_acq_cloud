@@ -2,10 +2,11 @@ package messaging
 
 import (
 	"fmt"
-	"github.com/jhump/protoreflect/dynamic"
 	"log"
 	"math"
 	"reflect"
+
+	"github.com/jhump/protoreflect/dynamic"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 
@@ -67,20 +68,6 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 		var lon float32
 		var ok bool
 
-		//println("out")
-		//println(msg.content.Data)
-		//if gps, found := data["vn_gps"].(map[string]interface{}); found {
-		//	log.Println("made it")
-		//	log.Println(gps)
-		//
-		//	if lat, ok = gps["lat"].(float32); !ok {
-		//		log.Println("lat is not a float, it is a: %v ", reflect.TypeOf(lat))
-		//	}
-		//	if lon, ok = gps["lon"].(float32); !ok {
-		//		log.Println("lon is not a float, it is a: %v ", reflect.TypeOf(lon))
-		//	}
-		//}
-
 		if gpsDynamicMessage, found := data["vn_gps"].(*dynamic.Message); found {
 			latFieldDescriptor := gpsDynamicMessage.FindFieldDescriptorByName("lat")
 			lonFieldDescriptor := gpsDynamicMessage.FindFieldDescriptorByName("lon")
@@ -102,21 +89,8 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 				log.Println("lon is not a float, it is a: %v ", reflect.TypeOf(lon))
 				continue
 			}
-			//}
-			//if lat, ok = gpsDynamicMessage["lat"].(float32); !ok {
-			//	log.Println("lat is not a float, it is a: %v ", reflect.TypeOf(lat))
-			//}
-			//if lon, ok = gpsDynamicMessage["lon"].(float32); !ok {
-			//	log.Println("lon is not a float, it is a: %v ", reflect.TypeOf(lon))
-			//}
 
 		}
-
-		// if raw, found := data["vn_gps_lon"]; found {
-		// 	if lon, ok = raw.(float32); !ok {
-		// 		fmt.Errorf("lon is not a float, it is a: %v ", reflect.TypeOf(lon))
-		// 	}
-		// }
 
 		if lat == 0 || lon == 0 {
 			continue
