@@ -117,36 +117,3 @@ func (w *RawMatlabWriter) addNestedValues(nestedMap map[string]interface{}, dyna
 func (w *RawMatlabWriter) AllSignalData() map[string]map[string]interface{} {
 	return w.allSignalData
 }
-
-// func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) {
-// 	if w.allSignalData[decodedMessage.Topic] == nil {
-// 		w.allSignalData[decodedMessage.Topic] = make(map[string][][]interface{})
-// 	}
-//
-// 	signalValues := decodedMessage.Data
-//
-// 	if w.firstTime == nil {
-// 		firstValue := float64(decodedMessage.LogTime) / 1e9
-// 		w.firstTime = &firstValue
-// 	}
-//
-// 	if w.allSignalData[decodedMessage.Topic] == nil {
-// 		w.allSignalData[decodedMessage.Topic] = make(map[string][][]interface{})
-// 	}
-//
-// 	for signalName, value := range signalValues {
-// 		// We call this method even though we are converting back to interfaces because some data types like bools should have specific values, and we need to account for that
-// 		floatValue := utils.GetFloatValueOfInterface(value)
-// 		signalSlice := w.allSignalData[decodedMessage.Topic][signalName] // All signal data for one signal value.
-//
-// 		timeSec := (float64(decodedMessage.LogTime) / 1e9) - *w.firstTime
-// 		singleRowToAdd := []interface{}{timeSec, floatValue}
-//
-// 		signalSlice = append(signalSlice, singleRowToAdd)
-// 		w.allSignalData[decodedMessage.Topic][signalName] = signalSlice
-// 	}
-// }
-//
-// func (w *RawMatlabWriter) GetAllSignalData() map[string]map[string][][]interface{} {
-// 	return w.allSignalData
-// }
