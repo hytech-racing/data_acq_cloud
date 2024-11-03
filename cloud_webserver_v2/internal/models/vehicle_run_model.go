@@ -27,7 +27,7 @@ type VehicleRunModel struct {
 	Notes          *string                `bson:"notes,omitempty"`
 	McapFiles      []FileModel            `bson:"mcap_files,omitempty"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
-	ContentFiles   map[string][]FileModel `bson:"graph_files,omitempty"`
+	ContentFiles   map[string][]FileModel `bson:"content_files,omitempty"`
 	Location       *string                `bson:"location,omitempty"`
 	EventType      *string                `bson:"event_type,omitempty"`
 	DynamicFields  map[string]interface{} `bson:"dynamic_fields,omitempty"`
@@ -41,7 +41,7 @@ type VehicleRunModelResponse struct {
 	Notes          *string                        `json:"notes,omitempty"`
 	McapFiles      []FileModelResponse            `json:"mcap_files,omitempty"`
 	MatFiles       []FileModelResponse            `json:"mat_files,omitempty"`
-	ContentFiles   map[string][]FileModelResponse `json:"graph_files,omitempty"`
+	ContentFiles   map[string][]FileModelResponse `json:"content_files,omitempty"`
 	Location       *string                        `json:"location,omitempty"`
 	EventType      *string                        `json:"event_type,omitempty"`
 	DynamicFields  map[string]interface{}         `json:"dynamic_fields,omitempty"`
