@@ -129,8 +129,8 @@ func main() {
 		println()
 		log.Println("Shutting down server...")
 
-		log.Println("Waiting for file processor to finish...")
-		fileProcessor.Stop()
+		// log.Println("Waiting for file processor to finish...")
+		// fileProcessor.Stop()
 
 		// Gracefully disconnect from MongoDB
 		mongoShutdownCtx, mongoShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)

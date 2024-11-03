@@ -252,16 +252,24 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	log.Printf("All subscribers finished for job %v", job.ID)
 
 	results := publisher.Results()
-	var raw_matlab_data *map[string]map[string]interface{}
+	var rawMatlabData *map[string]map[string]interface{}
 	if outer, ok := results["matlab_writer"]; ok {
 		if data, ok := outer.ResultData["raw_data"]; ok {
-			raw_matlab_data = data.(*map[string]map[string]interface{})
+			rawMatlabData = data.(*map[string]map[string]interface{})
 		}
 	}
 
-	matFileName := fmt.Sprintf("%s.mat", strings.Split(job.Filename, ".")[0])
+	var vnLatLonPlotWriter *io.WriterTo
+	if outer, ok := results["vn_plot"]; ok {
+		if data, ok := outer.ResultData["writer_to"]; ok {
+			vnLatLonPlotWriter = data.(*io.WriterTo)
+		}
+	}
+
+	genericFileName := strings.Split(job.Filename, ".")[0]
+	matFileName := fmt.Sprintf("%s.mat", genericFileName)
 	matFilePath := filepath.Join(job.FileDir, matFileName)
-	err = utils.CreateMatlabFile(matFilePath, raw_matlab_data)
+	err = utils.CreateMatlabFile(matFilePath, rawMatlabData)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -293,6 +301,15 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	}
 
 	log.Printf("uploaded mat file %v to s3", matFileName)
+
+	vnLatLonPlotName := fmt.Sprintf("%v.png", genericFileName)
+	vnLatLonPlotFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnLatLonPlotName)
+	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFilePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
 
 	if err := os.Remove(matFilePath); err != nil {
 		return fmt.Errorf("failed to remove created mat mcapFile: %w", err)
@@ -345,7 +362,7 @@ func (fp *FileProcessor) routeMessagesToSubscribers(ctx context.Context, publish
 	switch topic := decodedMessage.Topic; topic {
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, *allNames...)
-	case "vn_lat_lon":
+	case "hytech_msgs.VNData":
 		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
 	default:
 		subscriberNames = append(subscriberNames, "matlab_writer")
