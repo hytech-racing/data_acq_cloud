@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -43,4 +44,23 @@ func (repo *MongoVehicleRunRepository) Save(ctx context.Context, vehicleRun *mod
 	vehicleRun.Id = res.InsertedID.(primitive.ObjectID)
 
 	return vehicleRun, nil
+}
+
+func (repo *MongoVehicleRunRepository) GetWithVehicleFilters(ctx context.Context, filters *bson.M) ([]models.VehicleRunModel, error) {
+	cursor, err := repo.collection.Find(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("could not find in vehicle run data with filters %v, received error: %v", filters, err)
+	}
+
+	var modelResults []models.VehicleRunModel
+
+	if err = cursor.All(context.TODO(), &modelResults); err != nil {
+		return nil, err
+	}
+
+	if modelResults == nil {
+		modelResults = make([]models.VehicleRunModel, 0)
+	}
+
+	return modelResults, nil
 }

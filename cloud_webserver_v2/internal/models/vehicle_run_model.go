@@ -15,6 +15,7 @@ type FileModel struct {
 type VehicleRunModel struct {
 	Id             primitive.ObjectID     `bson:"_id,omitempty"`
 	Date           time.Time              `bson:"date"`
+	CarModel       string                 `bson:"car_model"`
 	SchemaVersions map[string]string      `bson:"schema_versions"`
 	Notes          *string                `bson:"notes,omitempty"`
 	McapFiles      []FileModel            `bson:"mcap_files,omitempty"`
