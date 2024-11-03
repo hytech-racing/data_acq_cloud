@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
@@ -43,7 +44,6 @@ func main() {
 		log.Fatalf("Error loading .env file %s", err)
 	}
 	log.Println("Loaded .env file...")
-	router := chi.NewRouter()
 
 	// Setup database our database connection
 	uri := os.Getenv("MONGODB_URI")
@@ -98,8 +98,19 @@ func main() {
 		FileProcessor: fileProcessor,
 	}
 
+	router := chi.NewRouter()
+
+	// CORS Setup
+	router.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"https://hytech-racing.github.io", "http://localhost:5173"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300, // Maximum value not ignored by any of major browsers
+	}))
+
 	// Simple middleware stack
-	// r.Use(httplog.RequestLogger(logger))
 	router.Use(middleware.Logger)
 	router.Use(middleware.Heartbeat("/ping"))
 	router.Use(middleware.RequestID)
