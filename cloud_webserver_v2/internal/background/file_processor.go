@@ -303,8 +303,8 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	log.Printf("uploaded mat file %v to s3", matFileName)
 
 	vnLatLonPlotName := fmt.Sprintf("%v.png", genericFileName)
-	vnLatLonPlotFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnLatLonPlotName)
-	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFilePath)
+	vnLatLonPlotFileObjectPath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnLatLonPlotName)
+	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		FileName:  mcapFileName,
 	}
 	mcapFiles := make([]models.FileModel, 1)
-	mcapFiles = append(mcapFiles, mcapFileEntry)
+	mcapFiles[0] = mcapFileEntry
 
 	matFileEntry := models.FileModel{
 		AwsBucket: fp.s3Repository.Bucket(),
@@ -334,12 +334,23 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		FileName:  matFileName,
 	}
 	matFiles := make([]models.FileModel, 1)
-	matFiles = append(matFiles, matFileEntry)
+	matFiles[0] = matFileEntry
+
+	contentFiles := make(map[string][]models.FileModel)
+	vnPlotFileEntry := models.FileModel{
+		AwsBucket: fp.s3Repository.Bucket(),
+		FilePath:  vnLatLonPlotFileObjectPath,
+		FileName:  vnLatLonPlotName,
+	}
+	vnPlotFiles := []models.FileModel{vnPlotFileEntry}
+	contentFiles["vn_lat_lon_plot"] = vnPlotFiles
 
 	vehicleRunModel := &models.VehicleRunModel{
-		Date:      job.Date,
-		McapFiles: mcapFiles,
-		MatFiles:  matFiles,
+		Date:         job.Date,
+		CarModel:     "HT08",
+		McapFiles:    mcapFiles,
+		MatFiles:     matFiles,
+		ContentFiles: contentFiles,
 	}
 
 	_, err = fp.dbClient.VehicleRunUseCase().CreateVehicleRun(ctx, vehicleRunModel)
