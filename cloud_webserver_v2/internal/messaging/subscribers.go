@@ -6,6 +6,8 @@ import (
 	"math"
 	"reflect"
 
+	"github.com/jhump/protoreflect/dynamic"
+
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging/subscribers"
@@ -66,16 +68,28 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 		var lon float32
 		var ok bool
 
-		if raw, found := data["vn_gps_lat"]; found {
-			if lat, ok = raw.(float32); !ok {
-				fmt.Errorf("lat is not a float, it is a: %v ", reflect.TypeOf(lat))
+		if gpsDynamicMessage, found := data["vn_gps"].(*dynamic.Message); found {
+			latFieldDescriptor := gpsDynamicMessage.FindFieldDescriptorByName("lat")
+			lonFieldDescriptor := gpsDynamicMessage.FindFieldDescriptorByName("lon")
+			if latFieldDescriptor == nil || lonFieldDescriptor == nil {
+				continue
 			}
-		}
 
-		if raw, found := data["vn_gps_lon"]; found {
-			if lon, ok = raw.(float32); !ok {
-				fmt.Errorf("lon is not a float, it is a: %v ", reflect.TypeOf(lon))
+			decodedLat := gpsDynamicMessage.GetField(latFieldDescriptor)
+			decodedLon := gpsDynamicMessage.GetField(lonFieldDescriptor)
+			if decodedLat == nil || decodedLon == nil {
+				continue
 			}
+
+			if lat, ok = decodedLat.(float32); !ok {
+				log.Println("lat is not a float, it is a: %v ", reflect.TypeOf(lat))
+				continue
+			}
+			if lon, ok = decodedLon.(float32); !ok {
+				log.Println("lon is not a float, it is a: %v ", reflect.TypeOf(lon))
+				continue
+			}
+
 		}
 
 		if lat == 0 || lon == 0 {
@@ -151,13 +165,16 @@ func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMess
 			matlabWriter = subscribers.CreateRawMatlabWriter()
 		} else {
 			if matlabWriter != nil {
-				matlabWriter.AddSignalValue(msg.GetContent())
+				err := matlabWriter.AddSignalValue(msg.GetContent())
+				if err != nil {
+					log.Fatal(err)
+				}
 			}
 		}
 	}
 
 	result := make(map[string]interface{})
-	allSignalData := matlabWriter.GetAllSignalData()
+	allSignalData := matlabWriter.AllSignalData()
 	result["raw_data"] = &allSignalData
 
 	if results != nil {

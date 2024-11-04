@@ -50,7 +50,7 @@ func NewMcapHandler(
 	r.Route("/mcaps", func(r chi.Router) {
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
-		r.Get("/get", handler.GetMcaps)
+		r.Get("/", handler.GetMcaps)
 	})
 }
 
@@ -104,9 +104,14 @@ func (h *mcapHandler) GetMcaps(w http.ResponseWriter, r *http.Request) {
 		filters.SearchText = &search_text
 	}
 
-	res, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
+	resModels, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	res := make([]models.VehicleRunModelResponse, len(resModels))
+	for idx, model := range resModels {
+		res[idx] = models.VehicleRunSerialize(ctx, h.s3Repository, model)
 	}
 
 	data := make(map[string]interface{})

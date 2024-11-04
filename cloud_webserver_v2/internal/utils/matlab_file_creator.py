@@ -2,7 +2,7 @@ import sys
 from scipy.io import savemat
 import json
 
-def main():
+def main(file_path: str):
     try:
         input_data = sys.stdin.read()
         
@@ -10,7 +10,7 @@ def main():
         # data = json.loads(input_data)
 
         # Attempt to save the data as .mat
-        savemat("./data.mat", data, long_field_names=True)
+        savemat(file_path, data, long_field_names=True)
         print("MATLAB file created successfully.")
 
     except json.JSONDecodeError as e:
@@ -20,5 +20,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    file_path = sys.argv[1]
+    main(file_path)
 

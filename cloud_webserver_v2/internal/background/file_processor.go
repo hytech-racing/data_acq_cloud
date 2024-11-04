@@ -9,11 +9,16 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
+
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
 
@@ -34,6 +39,8 @@ type FileProcessor struct {
 	MiddlewareEstimatedSize atomic.Int64
 	TotalSize               atomic.Int64
 	maxTotalSize            int64
+	dbClient                *database.DatabaseClient
+	s3Repository            *s3.S3Repository
 }
 
 type FileJob struct {
@@ -44,9 +51,11 @@ type FileJob struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	FilePath  string
+	FileDir   string
+	Date      time.Time
 }
 
-func NewFileProcessor(uploadDir string, maxTotalSize int64) (*FileProcessor, error) {
+func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.DatabaseClient, s3Repository *s3.S3Repository) (*FileProcessor, error) {
 	err := os.MkdirAll(uploadDir, 0o755)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create upload directory: %v", err)
@@ -59,6 +68,8 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64) (*FileProcessor, err
 		processingWg: sync.WaitGroup{},
 		mu:           sync.RWMutex{},
 		maxTotalSize: maxTotalSize,
+		dbClient:     dbClient,
+		s3Repository: s3Repository,
 	}
 
 	var totalSize int64
@@ -95,6 +106,8 @@ func (fp *FileProcessor) QueueFile(fileHeader *multipart.FileHeader) (*FileJob, 
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		FilePath:  filepath.Join(fp.uploadDir, fmt.Sprintf("%s_%s", id, fileHeader.Filename)),
+		FileDir:   fp.uploadDir,
+		Date:      time.Now(), // TODO: Change to date gotten from MCAP
 	}
 
 	dst, err := os.Create(job.FilePath)
@@ -109,7 +122,7 @@ func (fp *FileProcessor) QueueFile(fileHeader *multipart.FileHeader) (*FileJob, 
 	}
 
 	fp.TotalSize.Add(job.Size)
-	log.Println("job put in queue, ", job.ID)
+	log.Printf("job put in queue, %v", job.ID)
 	fp.queueChan <- job
 
 	return job, nil
@@ -145,17 +158,17 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	fp.setCurrentlyProcessing(true)
 	fp.updateJobStatus(job, StatusProcessing)
 
-	// file processing logic here
-	file, err := os.Open(job.FilePath)
+	// mcapFile processing logic here
+	mcapFile, err := os.Open(job.FilePath)
 	if err != nil {
-		return fmt.Errorf("could not open file %v, received error %v", job.Filename, err)
+		return fmt.Errorf("could not open mcapFile %v, received error %v", job.Filename, err)
 	}
-	defer file.Close()
-	log.Printf("Opened file %v", job.Filename)
+	defer mcapFile.Close()
+	log.Printf("Opened mcapFile %v", job.Filename)
 
 	mcapUtils := utils.NewMcapUtils()
 
-	reader, err := mcapUtils.NewReader(file)
+	reader, err := mcapUtils.NewReader(mcapFile)
 	if err != nil {
 		return fmt.Errorf("could not create mcap reader: %v", err)
 	}
@@ -165,7 +178,10 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		return fmt.Errorf("could not get info for mcap reader: %v", err)
 	}
 
-	mcapUtils.LoadAllSchemas(info)
+	err = mcapUtils.LoadAllSchemas(info)
+	if err != nil {
+		return err
+	}
 
 	schemaList, err := mcapUtils.GetMcapSchemaList(reader)
 	if err != nil {
@@ -177,11 +193,10 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		return fmt.Errorf("could not get mcap mesages: %v", err)
 	}
 
-	// This is all the subsribers relavent to handling an MCAP file. You can attach more workers here if need be.
+	// This is all the subsribers relavent to handling an MCAP mcapFile. You can attach more workers here if need be.
 	subscriberMapping := make(map[string]messaging.SubscriberFunc)
-	subscriberMapping["print"] = messaging.PrintMessages
-	// subscriberMapping["vn_plot"] = messaging.PlotLatLon
-	// subscriberMapping["matlab_writer"] = messaging.CreateInterpolatedMatlabFile
+	subscriberMapping["vn_plot"] = messaging.PlotLatLon
+	subscriberMapping["matlab_writer"] = messaging.CreateRawMatlabFile
 
 	publisher := messaging.NewPublisher(true)
 	subscriber_names := make([]string, len(subscriberMapping))
@@ -210,7 +225,7 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 			}
 
 			if err != nil {
-				log.Println("error reading mcap message: %v", err)
+				log.Printf("error reading mcap message: %v", err)
 				return
 			}
 
@@ -234,11 +249,113 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 
 	publisher.WaitForClosure()
 
-	log.Printf("All subscribers finished for job $v", job.ID)
+	log.Printf("All subscribers finished for job %v", job.ID)
 
-	// After successful processing, remove the file and update total size
+	results := publisher.Results()
+	var rawMatlabData *map[string]map[string]interface{}
+	if outer, ok := results["matlab_writer"]; ok {
+		if data, ok := outer.ResultData["raw_data"]; ok {
+			rawMatlabData = data.(*map[string]map[string]interface{})
+		}
+	}
+
+	var vnLatLonPlotWriter *io.WriterTo
+	if outer, ok := results["vn_plot"]; ok {
+		if data, ok := outer.ResultData["writer_to"]; ok {
+			vnLatLonPlotWriter = data.(*io.WriterTo)
+		}
+	}
+
+	genericFileName := strings.Split(job.Filename, ".")[0]
+	matFileName := fmt.Sprintf("%s.mat", genericFileName)
+	matFilePath := filepath.Join(job.FileDir, matFileName)
+	err = utils.CreateMatlabFile(matFilePath, rawMatlabData)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mcapFileS3Reader, err := os.Open(job.FilePath)
+	if err != nil {
+		log.Fatalf("could not open mcap file %v", job.FilePath)
+	}
+	defer mcapFileS3Reader.Close()
+
+	year, month, day := job.Date.Date()
+	mcapFileName := job.Filename
+	mcapObjectFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, mcapFileName)
+	err = fp.s3Repository.WriteObjectReader(ctx, mcapFileS3Reader, mcapObjectFilePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("uploaded mcap file %v to s3", mcapFileName)
+
+	matFile, err := os.Open(matFilePath)
+	if err != nil {
+		log.Fatalf("could not open mat matFile: %v", err)
+	}
+
+	matObjectFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, matFileName)
+	err = fp.s3Repository.WriteObjectReader(ctx, matFile, matObjectFilePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("uploaded mat file %v to s3", matFileName)
+
+	vnLatLonPlotName := fmt.Sprintf("%v.png", genericFileName)
+	vnLatLonPlotFileObjectPath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnLatLonPlotName)
+	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
+
+	if err := os.Remove(matFilePath); err != nil {
+		return fmt.Errorf("failed to remove created mat mcapFile: %w", err)
+	}
+
+	// After successful processing, remove the mcapFile and update total size
 	if err := os.Remove(job.FilePath); err != nil {
-		return fmt.Errorf("failed to remove processed file: %w", err)
+		return fmt.Errorf("failed to remove processed mcapFile: %w", err)
+	}
+
+	mcapFileEntry := models.FileModel{
+		AwsBucket: fp.s3Repository.Bucket(),
+		FilePath:  mcapObjectFilePath,
+		FileName:  mcapFileName,
+	}
+	mcapFiles := make([]models.FileModel, 1)
+	mcapFiles[0] = mcapFileEntry
+
+	matFileEntry := models.FileModel{
+		AwsBucket: fp.s3Repository.Bucket(),
+		FilePath:  matObjectFilePath,
+		FileName:  matFileName,
+	}
+	matFiles := make([]models.FileModel, 1)
+	matFiles[0] = matFileEntry
+
+	contentFiles := make(map[string][]models.FileModel)
+	vnPlotFileEntry := models.FileModel{
+		AwsBucket: fp.s3Repository.Bucket(),
+		FilePath:  vnLatLonPlotFileObjectPath,
+		FileName:  vnLatLonPlotName,
+	}
+	vnPlotFiles := []models.FileModel{vnPlotFileEntry}
+	contentFiles["vn_lat_lon_plot"] = vnPlotFiles
+
+	vehicleRunModel := &models.VehicleRunModel{
+		Date:         job.Date,
+		CarModel:     "HT08",
+		McapFiles:    mcapFiles,
+		MatFiles:     matFiles,
+		ContentFiles: contentFiles,
+	}
+
+	_, err = fp.dbClient.VehicleRunUseCase().CreateVehicleRun(ctx, vehicleRunModel)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	fp.TotalSize.Add(-job.Size)
@@ -256,10 +373,10 @@ func (fp *FileProcessor) routeMessagesToSubscribers(ctx context.Context, publish
 	switch topic := decodedMessage.Topic; topic {
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, *allNames...)
-	case "vn_lat_lon":
+	case "hytech_msgs.VNData":
 		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
 	default:
-		subscriberNames = append(subscriberNames, "print")
+		subscriberNames = append(subscriberNames, "matlab_writer")
 	}
 
 	publisher.Publish(ctx, decodedMessage, subscriberNames)

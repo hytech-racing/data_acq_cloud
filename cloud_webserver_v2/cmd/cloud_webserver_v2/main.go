@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
@@ -33,6 +34,7 @@ import (
 */
 
 func main() {
+	log.Println("Server starting...")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -41,7 +43,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error loading .env file %s", err)
 	}
-	router := chi.NewRouter()
+	log.Println("Loaded .env file...")
 
 	// Setup database our database connection
 	uri := os.Getenv("MONGODB_URI")
@@ -52,6 +54,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Println("Connected to database...")
 
 	// Setup aws s3 connection
 	awsRegion := os.Getenv("AWS_REGION")
@@ -74,10 +77,16 @@ func main() {
 		log.Fatal("could not get aws secret key environment variable")
 	}
 
+	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
+	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket)
+	log.Println("Started S3 session...")
+
 	// Create file fileProcessor with 10GB limit
 	fileProcessor, err := background.NewFileProcessor(
 		"./uploads",
 		10*1024*1024*1024, // 10GB
+		dbClient,
+		s3Repository,
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -89,16 +98,24 @@ func main() {
 		FileProcessor: fileProcessor,
 	}
 
+	router := chi.NewRouter()
+
+	// CORS Setup
+	router.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"https://hytech-racing.github.io", "http://localhost:5173"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300, // Maximum value not ignored by any of major browsers
+	}))
+
 	// Simple middleware stack
-	// r.Use(httplog.RequestLogger(logger))
 	router.Use(middleware.Logger)
 	router.Use(middleware.Heartbeat("/ping"))
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
-
-	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
-	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket)
 
 	// Set a timeout value on the request context (ctx), that will signal
 	// through ctx.Done() that the request has timed out and further
@@ -106,6 +123,7 @@ func main() {
 	router.Use(middleware.Timeout(2 * time.Minute))
 
 	router.Mount("/api/v2", router)
+	log.Println("Ready to accept requests!")
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
