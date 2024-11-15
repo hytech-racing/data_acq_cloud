@@ -38,13 +38,13 @@ type VehicleRunModelResponse struct {
 	Date           time.Time                      `json:"date"`
 	CarModel       string                         `json:"car_model"`
 	SchemaVersions map[string]string              `json:"schema_versions"`
-	Notes          *string                        `json:"notes,omitempty"`
-	McapFiles      []FileModelResponse            `json:"mcap_files,omitempty"`
-	MatFiles       []FileModelResponse            `json:"mat_files,omitempty"`
-	ContentFiles   map[string][]FileModelResponse `json:"content_files,omitempty"`
-	Location       *string                        `json:"location,omitempty"`
-	EventType      *string                        `json:"event_type,omitempty"`
-	DynamicFields  map[string]interface{}         `json:"dynamic_fields,omitempty"`
+	Notes          *string                        `json:"notes"`
+	McapFiles      []FileModelResponse            `json:"mcap_files"`
+	MatFiles       []FileModelResponse            `json:"mat_files"`
+	ContentFiles   map[string][]FileModelResponse `json:"content_files"`
+	Location       *string                        `json:"location"`
+	EventType      *string                        `json:"event_type"`
+	DynamicFields  map[string]interface{}         `json:"dynamic_fields"`
 }
 
 func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model VehicleRunModel) VehicleRunModelResponse {
