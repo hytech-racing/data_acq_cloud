@@ -1,6 +1,8 @@
 package subscribers
 
 import (
+	"fmt"
+	"log"
 	"strings"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
@@ -8,15 +10,30 @@ import (
 )
 
 type RawMatlabWriter struct {
-	allSignalData map[string]map[string]interface{}
-	firstTime     *float64
+	allSignalData   map[string]map[string]interface{}
+	firstTime       *float64
+	failedMessages  [][2]interface{}
+	HDF5Writer      *utils.HDF5Writer
+	maxSignalLength int // Constantly updated so we know what the max len of a data slice is
+	filePath        string
 }
 
-func CreateRawMatlabWriter() *RawMatlabWriter {
-	return &RawMatlabWriter{
-		allSignalData: make(map[string]map[string]interface{}),
-		firstTime:     nil,
+func CreateRawMatlabWriter(filePath, fileName string) (*RawMatlabWriter, error) {
+	hdf5Location := fmt.Sprintf("%s/%s.h5", filePath, fileName)
+	log.Println(hdf5Location)
+	hdf5Writer, err := utils.NewHDF5Writer(hdf5Location)
+	if err != nil {
+		return nil, err
 	}
+
+	return &RawMatlabWriter{
+		allSignalData:   make(map[string]map[string]interface{}),
+		firstTime:       nil,
+		failedMessages:  make([][2]interface{}, 0),
+		HDF5Writer:      hdf5Writer,
+		maxSignalLength: 0,
+		filePath:        hdf5Location,
+	}, nil
 }
 
 func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) error {
@@ -39,13 +56,22 @@ func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) e
 	}
 
 	for signalName, value := range signalValues {
-		w.processSignalValue(trimmedTopic, signalName, value, float64(decodedMessage.LogTime)/1e9)
+		w.processSignalValue(trimmedTopic, signalName, trimmedTopic+"."+signalName, value, float64(decodedMessage.LogTime)/1e9)
+	}
+
+	if w.maxSignalLength > 100_000 {
+		err := w.HDF5Writer.ChunkWrite(w.allSignalData)
+		if err != nil {
+			return err
+		}
+		w.allSignalData = make(map[string]map[string]interface{})
+		w.maxSignalLength = 0
 	}
 
 	return nil
 }
 
-func (w *RawMatlabWriter) processSignalValue(topic, signalName string, value interface{}, logTime float64) {
+func (w *RawMatlabWriter) processSignalValue(topic, signalName, signalPath string, value interface{}, logTime float64) {
 	dynamicMessage, ok := value.(*dynamic.Message)
 
 	if ok {
@@ -55,7 +81,7 @@ func (w *RawMatlabWriter) processSignalValue(topic, signalName string, value int
 
 		// Process nested dynamic message fields
 		currentNest := w.allSignalData[topic][signalName]
-		w.addNestedValues(currentNest.(map[string]interface{}), dynamicMessage, logTime)
+		w.addNestedValues(signalPath, currentNest.(map[string]interface{}), dynamicMessage, logTime)
 
 	} else {
 		// Non-dynamic message values are processed normally
@@ -64,18 +90,21 @@ func (w *RawMatlabWriter) processSignalValue(topic, signalName string, value int
 		}
 
 		w.allSignalData[topic][signalName] = append(w.allSignalData[topic][signalName].([][]float64), []float64{logTime - *w.firstTime, utils.GetFloatValueOfInterface(value)})
+		w.maxSignalLength = max(w.maxSignalLength, len(w.allSignalData[topic][signalName].([][]float64)))
 	}
 }
 
 // Function to add nested values from dynamic message fields recursively
-func (w *RawMatlabWriter) addNestedValues(nestedMap map[string]interface{}, dynamicMessage *dynamic.Message, logTime float64) {
+func (w *RawMatlabWriter) addNestedValues(signalPath string, nestedMap map[string]interface{}, dynamicMessage *dynamic.Message, logTime float64) {
 	if dynamicMessage == nil {
 		return
 	}
 	fieldNames := dynamicMessage.GetKnownFields()
 	// Get all the field descriptors associated with this message
+	baseSignalPath := signalPath
 	for _, field := range fieldNames {
 		fieldName := field.GetName()
+		baseSignalPath += "/" + fieldName
 
 		// Each dynamic message has field descriptors, not data. We need to extract those field descriptors and then use them
 		// to figure out what data values are in there. The value could be another map, a list of values, or just a single value.
@@ -98,7 +127,7 @@ func (w *RawMatlabWriter) addNestedValues(nestedMap map[string]interface{}, dyna
 				nestedMap[fieldName] = make(map[string]interface{})
 			}
 
-			w.addNestedValues(nestedMap[fieldName].(map[string]interface{}), unboxedNested, logTime)
+			w.addNestedValues(signalPath, nestedMap[fieldName].(map[string]interface{}), unboxedNested, logTime)
 		} else {
 			if _, ok := nestedMap[fieldName]; !ok {
 				nestedMap[fieldName] = make([][]float64, 0)
@@ -106,14 +135,23 @@ func (w *RawMatlabWriter) addNestedValues(nestedMap map[string]interface{}, dyna
 
 			nestedMapFieldLength := len(nestedMap[fieldName].([][]float64))
 
-			// Samples at 200hz
 			if nestedMapFieldLength == 0 || nestedMap[fieldName].([][]float64)[nestedMapFieldLength-1][0]+0.005 <= (logTime-*w.firstTime) {
 				nestedMap[fieldName] = append(nestedMap[fieldName].([][]float64), []float64{logTime - *w.firstTime, utils.GetFloatValueOfInterface(decodedValue)})
+				w.maxSignalLength = max(w.maxSignalLength, len(nestedMap[fieldName].([][]float64)))
 			}
 		}
+		baseSignalPath = signalPath
 	}
 }
 
 func (w *RawMatlabWriter) AllSignalData() map[string]map[string]interface{} {
 	return w.allSignalData
+}
+
+func (w *RawMatlabWriter) MaxSignalLength() int {
+	return w.maxSignalLength
+}
+
+func (w *RawMatlabWriter) FilePath() string {
+	return w.filePath
 }

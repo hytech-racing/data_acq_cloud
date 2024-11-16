@@ -206,6 +206,7 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		publisher.Subscribe(idx+1, subscriber_name, function)
 		idx++
 	}
+	genericFileName := strings.Split(job.Filename, ".")[0]
 
 	log.Printf("Starting subsribers for job: %s", job.ID)
 	go func() {
@@ -213,6 +214,8 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		// Because of this, they will need their first message to set paramaters. This is what initMessage is for.
 		initMessage := make(map[string]interface{})
 		initMessage["schema_list"] = schemaList
+		initMessage["file_name"] = genericFileName
+		initMessage["file_path"] = job.FileDir
 		fp.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
 
 		for {
@@ -252,10 +255,11 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	log.Printf("All subscribers finished for job %v", job.ID)
 
 	results := publisher.Results()
-	var rawMatlabData *map[string]map[string]interface{}
+
+	var hdf5Location string
 	if outer, ok := results["matlab_writer"]; ok {
-		if data, ok := outer.ResultData["raw_data"]; ok {
-			rawMatlabData = data.(*map[string]map[string]interface{})
+		if data, ok := outer.ResultData["file_path"]; ok {
+			hdf5Location = data.(string)
 		}
 	}
 
@@ -264,14 +268,6 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 		if data, ok := outer.ResultData["writer_to"]; ok {
 			vnLatLonPlotWriter = data.(*io.WriterTo)
 		}
-	}
-
-	genericFileName := strings.Split(job.Filename, ".")[0]
-	matFileName := fmt.Sprintf("%s.mat", genericFileName)
-	matFilePath := filepath.Join(job.FileDir, matFileName)
-	err = utils.CreateMatlabFile(matFilePath, rawMatlabData)
-	if err != nil {
-		log.Fatal(err)
 	}
 
 	mcapFileS3Reader, err := os.Open(job.FilePath)
@@ -289,18 +285,19 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	}
 	log.Printf("uploaded mcap file %v to s3", mcapFileName)
 
-	matFile, err := os.Open(matFilePath)
+	hdf5File, err := os.Open(hdf5Location)
 	if err != nil {
 		log.Fatalf("could not open mat matFile: %v", err)
 	}
 
-	matObjectFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, matFileName)
-	err = fp.s3Repository.WriteObjectReader(ctx, matFile, matObjectFilePath)
+	hdf5FileName := fmt.Sprintf("%s.h5", genericFileName)
+	matObjectFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, hdf5FileName)
+	err = fp.s3Repository.WriteObjectReader(ctx, hdf5File, matObjectFilePath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Printf("uploaded mat file %v to s3", matFileName)
+	log.Printf("uploaded hdf5 file %v to s3", hdf5FileName)
 
 	vnLatLonPlotName := fmt.Sprintf("%v.png", genericFileName)
 	vnLatLonPlotFileObjectPath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnLatLonPlotName)
@@ -311,7 +308,7 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 
 	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
 
-	if err := os.Remove(matFilePath); err != nil {
+	if err := os.Remove(hdf5Location); err != nil {
 		return fmt.Errorf("failed to remove created mat mcapFile: %w", err)
 	}
 
@@ -331,7 +328,7 @@ func (fp *FileProcessor) processFileJob(job *FileJob) error {
 	matFileEntry := models.FileModel{
 		AwsBucket: fp.s3Repository.Bucket(),
 		FilePath:  matObjectFilePath,
-		FileName:  matFileName,
+		FileName:  hdf5FileName,
 	}
 	matFiles := make([]models.FileModel, 1)
 	matFiles[0] = matFileEntry

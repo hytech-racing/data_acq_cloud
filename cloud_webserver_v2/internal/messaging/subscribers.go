@@ -131,7 +131,6 @@ func CreateInterpolatedMatlabFile(id int, subscriberName string, ch <-chan Subsc
 			break
 		} else if msg.GetContent().Topic == INIT {
 			schema, err := getInterpolatedSchemaMap(&msg)
-			fmt.Printf("%v, ", schema)
 			if err != nil {
 				log.Panic("could not get mcap schema map")
 			}
@@ -158,11 +157,28 @@ func CreateInterpolatedMatlabFile(id int, subscriberName string, ch <-chan Subsc
 
 func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	var matlabWriter *subscribers.RawMatlabWriter
+	var fileName string
+	var filePath string
 	for msg := range ch {
 		if msg.GetContent().Topic == EOF {
-			break
 		} else if msg.GetContent().Topic == INIT {
-			matlabWriter = subscribers.CreateRawMatlabWriter()
+			if name, exists := msg.GetContent().Data["file_name"]; exists {
+				fileName = name.(string)
+			} else {
+				break
+			}
+
+			if path, exists := msg.GetContent().Data["file_path"]; exists {
+				filePath = path.(string)
+			} else {
+				break
+			}
+			var err error
+			matlabWriter, err = subscribers.CreateRawMatlabWriter(filePath, fileName)
+			if err != nil {
+				log.Printf("could not start matlab worker: %v", err)
+				break
+			}
 		} else {
 			if matlabWriter != nil {
 				err := matlabWriter.AddSignalValue(msg.GetContent())
@@ -173,10 +189,20 @@ func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMess
 		}
 	}
 
-	result := make(map[string]interface{})
-	allSignalData := matlabWriter.AllSignalData()
-	result["raw_data"] = &allSignalData
+	if matlabWriter.MaxSignalLength() > 0 {
+		err := matlabWriter.HDF5Writer.ChunkWrite(matlabWriter.AllSignalData())
+		if err != nil {
+			log.Printf("could not chunk write hdf5 file: %v", err)
+		}
 
+		err = matlabWriter.HDF5Writer.Close()
+		if err != nil {
+			log.Printf("could not close hdf5 file: %v", err)
+		}
+	}
+
+	result := make(map[string]interface{})
+	result["file_path"] = matlabWriter.FilePath()
 	if results != nil {
 		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
 	}
