@@ -2,13 +2,14 @@ package s3
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"testing"
 
 	"github.com/joho/godotenv"
 )
 
-func TestS3(t *testing.T) {
+func TestS3_URL(t *testing.T) {
 	t.Log("Starting tests...")
 
 	err := godotenv.Load(".env")
@@ -61,6 +62,17 @@ func TestS3(t *testing.T) {
 		t.Errorf("File doesn't exist: %v", err)
 	}
 
+	// Retrieve and Check Signed URL
+	signed_url := s3_respository.GetSignedUrl(ctx, aws_bucket, obj_name)
+	t.Log("Signed URL: " + signed_url)
+
+	resp, err := http.Get(signed_url)
+	if err != nil {
+		t.Errorf("Signed url is null: %v", err)
+	}
+
+	goodResp := resp.StatusCode == http.StatusOK
+
 	deleted, err := s3_respository.DeleteObject(ctx, obj_name)
 	if err != nil {
 		t.Errorf("Unable to delete file: %v", err)
@@ -68,7 +80,7 @@ func TestS3(t *testing.T) {
 	}
 
 	want := true
-	got := exists && deleted
+	got := exists && goodResp && deleted
 
 	if got != want {
 		t.Errorf("Test fail! want: '%t', got: '%t'", want, got)
