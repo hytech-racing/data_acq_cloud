@@ -37,3 +37,5 @@ COPY .env .env
 
 # Expose the port
 EXPOSE 8080
+
+ENTRYPOINT ["./server"]
