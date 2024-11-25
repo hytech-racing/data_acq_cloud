@@ -43,7 +43,7 @@ RUN echo "MONGODB_URI=${MONGODB_URI}" >> .env && \
     echo "AWS_REGION=${AWS_REGION}" >> .env && \
     echo "AWS_S3_RUN_BUCKET=${AWS_S3_RUN_BUCKET}" >> .env && \
     echo "AWS_ACCESS_KEY=${AWS_ACCESS_KEY}" >> .env && \
-    echo "AWS_SECRET_KEY=${AWS_SECRET_KEY}" >> .env &&
+    echo "AWS_SECRET_KEY=${AWS_SECRET_KEY}" >> .env
 
 # Expose the port
 EXPOSE 8080
