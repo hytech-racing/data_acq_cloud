@@ -45,21 +45,4 @@ func handleHTTPError(w http.ResponseWriter, err HandlerError) {
 		"data":    make([]interface{}, 0),
 		"message": err.Message,
 	})
-	// if httpErr, ok := err.(*); ok {
-	//     // If it's an HTTPError, send structured JSON
-	//     w.Header().Set("Content-Type", "application/json")
-	//     w.WriteHeader(httpErr.Code)
-	//     json.NewEncoder(w).Encode(map[string]interface{}{
-	//         "error":   httpErr.Message,
-	//         "status":  httpErr.Code,
-	//     })
-	// } else {
-	//     // For unexpected errors, send a generic 500 response
-	//     w.Header().Set("Content-Type", "application/json")
-	//     w.WriteHeader(http.StatusInternalServerError)
-	//     json.NewEncoder(w).Encode(map[string]interface{}{
-	//         "error":   "Internal server error",
-	//         "status":  http.StatusInternalServerError,
-	//     })
-	// }
 }
