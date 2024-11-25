@@ -33,7 +33,7 @@ WORKDIR /app
 COPY --from=go-builder /app/cmd/cloud_webserver_v2/server .
 
 # Copy the environment file
-COPY .env .env
+COPY stack.env stack.env
 
 # Expose the port
 EXPOSE 8080
