@@ -34,7 +34,7 @@ type VehicleRunModel struct {
 }
 
 type VehicleRunModelResponse struct {
-	Id             primitive.ObjectID             `json:"id"`
+	Id             string                         `json:"id"`
 	Date           time.Time                      `json:"date"`
 	CarModel       string                         `json:"car_model"`
 	SchemaVersions map[string]string              `json:"schema_versions"`
@@ -49,7 +49,7 @@ type VehicleRunModelResponse struct {
 
 func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model VehicleRunModel) VehicleRunModelResponse {
 	modelOut := VehicleRunModelResponse{
-		Id:             model.Id,
+		Id:             model.Id.Hex(),
 		Date:           model.Date,
 		CarModel:       model.CarModel,
 		SchemaVersions: model.SchemaVersions,
