@@ -1,7 +1,7 @@
 package http
 
 import (
-	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -10,11 +10,9 @@ import (
 	"github.com/go-chi/render"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -51,6 +49,8 @@ func NewMcapHandler(
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
 		r.Get("/", handler.GetMcaps)
+		r.Get("/{id}", HandlerFunc(handler.GetMcap).ServeHTTP)
+		r.Delete("/{id}", HandlerFunc(handler.DeleteMcap).ServeHTTP)
 	})
 }
 
@@ -144,21 +144,6 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, response)
 }
 
-func (h *mcapHandler) routeMessagesToSubscribers(ctx context.Context, publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
-	// List of all the workers we want to send the messages to
-	var subscriberNames []string
-	switch topic := decodedMessage.Topic; topic {
-	case messaging.EOF:
-		subscriberNames = append(subscriberNames, *allNames...)
-	case "vn_lat_lon":
-		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
-	default:
-		subscriberNames = append(subscriberNames, "print")
-	}
-
-	publisher.Publish(ctx, decodedMessage, subscriberNames)
-}
-
 func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -182,4 +167,89 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	response["data"] = jobIds
 
 	render.JSON(w, r, response)
+}
+
+func (h *mcapHandler) DeleteMcap(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	vehicleModel, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return NewHandlerError(fmt.Sprintf("no run with id %v found", mcapId), http.StatusNotFound)
+		}
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+
+	for _, mcapFileModel := range vehicleModel.McapFiles {
+		err = h.s3Repository.DeleteObject(ctx, mcapFileModel.AwsBucket, mcapFileModel.FilePath)
+		if err != nil {
+			return NewHandlerError(err.Error(), http.StatusInternalServerError)
+		}
+	}
+
+	for _, matFileModel := range vehicleModel.MatFiles {
+		err = h.s3Repository.DeleteObject(ctx, matFileModel.AwsBucket, matFileModel.FilePath)
+		if err != nil {
+			return NewHandlerError(err.Error(), http.StatusInternalServerError)
+		}
+	}
+
+	for _, contentFileModels := range vehicleModel.ContentFiles {
+		for _, content := range contentFileModels {
+			err = h.s3Repository.DeleteObject(ctx, content.AwsBucket, content.FilePath)
+			if err != nil {
+				return NewHandlerError(err.Error(), http.StatusInternalServerError)
+			}
+		}
+	}
+
+	err = h.dbClient.VehicleRunUseCase().DeleteVehicleRunById(ctx, objectId)
+	if err != nil {
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+
+	return nil
+}
+
+func (h *mcapHandler) GetMcap(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	mcap, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return NewHandlerError(fmt.Sprintf("no run with id %v found", mcapId), http.StatusNotFound)
+		}
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+	responseMcap := models.VehicleRunSerialize(ctx, h.s3Repository, *mcap)
+	data := make([]models.VehicleRunModelResponse, 1)
+	data[0] = responseMcap
+
+	response := make(map[string]interface{})
+	response["message"] = ""
+	response["data"] = data
+
+	render.JSON(w, r, response)
+
+	return nil
 }

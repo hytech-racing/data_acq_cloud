@@ -64,3 +64,29 @@ func (repo *MongoVehicleRunRepository) GetWithVehicleFilters(ctx context.Context
 
 	return modelResults, nil
 }
+
+func (repo *MongoVehicleRunRepository) GetVehicleRunFromId(ctx context.Context, id primitive.ObjectID) (*models.VehicleRunModel, error) {
+	filter := bson.M{"_id": id}
+	result := repo.collection.FindOne(ctx, filter)
+	if result.Err() != nil {
+		return nil, result.Err()
+	}
+
+	var model models.VehicleRunModel
+	err := result.Decode(&model)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode result into model: %v", err)
+	}
+
+	return &model, nil
+}
+
+func (repo *MongoVehicleRunRepository) DeleteVehicleRunFromId(ctx context.Context, id primitive.ObjectID) error {
+	filter := bson.M{"_id": id}
+	_, err := repo.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

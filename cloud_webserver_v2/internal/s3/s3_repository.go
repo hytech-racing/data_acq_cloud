@@ -78,6 +78,19 @@ func (s *S3Repository) GetSignedUrl(ctx context.Context, bucket string, objectPa
 	return request.URL
 }
 
+func (s *S3Repository) DeleteObject(ctx context.Context, bucket string, objectPath string) error {
+	params := s3.DeleteObjectInput{
+		Bucket: &bucket,
+		Key:    &objectPath,
+	}
+	_, err := s.s3_session.client.DeleteObject(ctx, &params)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *S3Repository) Bucket() string {
 	return s.s3_session.bucket
 }

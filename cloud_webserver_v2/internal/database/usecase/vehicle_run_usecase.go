@@ -99,3 +99,11 @@ func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters
 
 	return result, nil
 }
+
+func (uc *VehicleRunUseCase) GetVehicleRunById(ctx context.Context, id primitive.ObjectID) (*models.VehicleRunModel, error) {
+	return uc.vechicleRunRepo.GetVehicleRunFromId(ctx, id)
+}
+
+func (uc *VehicleRunUseCase) DeleteVehicleRunById(ctx context.Context, id primitive.ObjectID) error {
+	return uc.vechicleRunRepo.DeleteVehicleRunFromId(ctx, id)
+}
