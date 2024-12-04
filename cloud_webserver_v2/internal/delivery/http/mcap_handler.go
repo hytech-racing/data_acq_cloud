@@ -130,7 +130,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	file := r.MultipartForm.File["file"]
 	jobIds := make([]string, 1, len(file))
 	fileHeader := file[0]
-	job, err := h.fileProcessor.QueueFile(fileHeader)
+	job, err := h.fileProcessor.QueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
 	if err != nil {
 		log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
 		return
@@ -154,7 +154,7 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	files := r.MultipartForm.File["files"]
 	jobIds := make([]string, 0, len(files))
 	for _, fileHeader := range files {
-		job, err := h.fileProcessor.QueueFile(fileHeader)
+		job, err := h.fileProcessor.QueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
 		if err != nil {
 			log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
 			continue
