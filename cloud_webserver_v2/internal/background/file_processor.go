@@ -24,6 +24,10 @@ const (
 	StatusFailed     = "failed"
 )
 
+type FileJobProcessor interface {
+	Process(fp *FileProcessor, job *FileJob) error
+}
+
 type FileProcessor struct {
 	uploadDir               string
 	queueChan               chan *FileJob
@@ -39,16 +43,16 @@ type FileProcessor struct {
 }
 
 type FileJob struct {
-	ID         string
-	Filename   string
-	Size       int64
-	Status     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	FilePath   string
-	FileDir    string
-	Date       time.Time
-	processJob func(fp *FileProcessor, job *FileJob) error
+	ID        string
+	Filename  string
+	Size      int64
+	Status    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	FilePath  string
+	FileDir   string
+	Date      time.Time
+	Processor FileJobProcessor
 }
 
 func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.DatabaseClient, s3Repository *s3.S3Repository) (*FileProcessor, error) {
@@ -86,7 +90,7 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 	return fp, nil
 }
 
-func (fp *FileProcessor) QueueFile(fileHeader *multipart.FileHeader, processJob func(fp *FileProcessor, job *FileJob) error) (*FileJob, error) {
+func (fp *FileProcessor) QueueFile(fileHeader *multipart.FileHeader, processor FileJobProcessor) (*FileJob, error) {
 	src, err := fileHeader.Open()
 	if err != nil {
 		return nil, err
@@ -95,16 +99,16 @@ func (fp *FileProcessor) QueueFile(fileHeader *multipart.FileHeader, processJob 
 
 	id := fmt.Sprintf("job_%d", time.Now().UnixNano())
 	job := &FileJob{
-		ID:         id,
-		Filename:   fileHeader.Filename,
-		Size:       fileHeader.Size,
-		Status:     StatusPending,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
-		FilePath:   filepath.Join(fp.uploadDir, fmt.Sprintf("%s_%s", id, fileHeader.Filename)),
-		FileDir:    fp.uploadDir,
-		Date:       time.Now(), // TODO: Change to date gotten from MCAP
-		processJob: processJob,
+		ID:        id,
+		Filename:  fileHeader.Filename,
+		Size:      fileHeader.Size,
+		Status:    StatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		FilePath:  filepath.Join(fp.uploadDir, fmt.Sprintf("%s_%s", id, fileHeader.Filename)),
+		FileDir:   fp.uploadDir,
+		Date:      time.Now(), // TODO: Change to date gotten from MCAP
+		Processor: processor,
 	}
 
 	dst, err := os.Create(job.FilePath)
@@ -140,7 +144,7 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 		case <-fp.stopChan:
 			return
 		case job := <-fp.queueChan:
-			if err := job.processJob(fp, job); err != nil {
+			if err := job.Processor.Process(fp, job); err != nil {
 				log.Printf("Failed to process file %s: %v", job.Filename, err)
 				fp.updateJobStatus(job, StatusFailed)
 				// TODO: Add job status to database

@@ -14,15 +14,9 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
 
-type PostProcessMCAPJob struct {
-	fileJob *FileJob
-}
+type PostProcessMCAPUploadJob struct{}
 
-func (job *PostProcessMCAPJob) JobID() string {
-	return job.fileJob.ID
-}
-
-func ProcessMcapUploadJob(fp *FileProcessor, job *FileJob) error {
+func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) error {
 	ctx := context.TODO()
 	fp.setCurrentlyProcessing(true)
 	fp.updateJobStatus(job, StatusProcessing)
