@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"log"
 	"net/http"
 	"os"
@@ -33,7 +34,11 @@ import (
    - [ ] Add tests for all components of the server (I want to check out testcontainers it seems really nice)
 */
 
+//go:embed buzz.txt
+var buzz string
+
 func main() {
+	println(buzz)
 	log.Println("Server starting...")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
