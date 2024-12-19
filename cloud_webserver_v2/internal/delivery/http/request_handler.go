@@ -5,6 +5,10 @@ import (
 	"net/http"
 )
 
+// HandlerFunc serves as a wrapper to allow for direct error returning from normal chi handler methods.
+// It doesn't do anything too special and is a nice to have.
+// It allows handlers to throw errors with set status codes and mesasges in a consistent and convenient fashion,
+// and makes it clear that a thrown error early returns from the handler function.
 type HandlerFunc func(w http.ResponseWriter, r *http.Request) *HandlerError
 
 type HandlerError struct {

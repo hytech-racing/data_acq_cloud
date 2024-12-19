@@ -20,12 +20,13 @@ import (
    - [x] Add logic for parsing decoded MCAP files
    - [x] Be able to send those messages out to subscribers
    - [x] Be able to write MATLAB files from the MCAP inputs.
-   - [ ] Store/organize those MCAP and Matlab files in AWS S3 (waiting on drivebrain to write MCAP files with dates/other info in metadata)
-   - [ ] After debugging, make UploadMcap route quickly give response and perform task after responding
+   - [x] Store/organize those MCAP and Matlab files in AWS S3 (waiting on drivebrain to write MCAP files with dates/other info in metadata)
+   - [x] After debugging, make UploadMcap route quickly give response and perform task after responding
    - [ ] The interpolation logic is a little flawed. More docs on that is in the bookstack. We need to fix it but it is low-priority for now.
    - [ ] Once interpolation logic is fixed, write an interpolated MCAP file with the data.
 */
 
+// mcapHandler handles all requests related to MCAP data (uploads, deltions, edits, reading).
 type mcapHandler struct {
 	s3Repository  *s3.S3Repository
 	dbClient      *database.DatabaseClient
@@ -46,6 +47,8 @@ func NewMcapHandler(
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
+		// The FileUploadMiddleware is attached to all routes involved with uploading files
+		// It limits the amount of uploads we accept to a pre-set limit
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
 		r.Get("/", handler.GetMcaps)
@@ -118,6 +121,39 @@ func (h *mcapHandler) GetMcaps(w http.ResponseWriter, r *http.Request) {
 	data["data"] = res
 	data["message"] = make(map[string]interface{})
 	render.JSON(w, r, data)
+}
+
+func (h *mcapHandler) GetMcap(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	mcap, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return NewHandlerError(fmt.Sprintf("no run with id %v found", mcapId), http.StatusNotFound)
+		}
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+	responseMcap := models.VehicleRunSerialize(ctx, h.s3Repository, *mcap)
+	data := make([]models.VehicleRunModelResponse, 1)
+	data[0] = responseMcap
+
+	response := make(map[string]interface{})
+	response["message"] = ""
+	response["data"] = data
+
+	render.JSON(w, r, response)
+
+	return nil
 }
 
 func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
@@ -217,39 +253,6 @@ func (h *mcapHandler) DeleteMcap(w http.ResponseWriter, r *http.Request) *Handle
 	if err != nil {
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
-
-	return nil
-}
-
-func (h *mcapHandler) GetMcap(w http.ResponseWriter, r *http.Request) *HandlerError {
-	ctx := r.Context()
-
-	mcapId := chi.URLParam(r, "id")
-	if mcapId == "" {
-		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
-	}
-
-	objectId, err := primitive.ObjectIDFromHex(mcapId)
-	if err != nil {
-		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
-	}
-
-	mcap, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
-	if err != nil {
-		if err.Error() == "mongo: no documents in result" {
-			return NewHandlerError(fmt.Sprintf("no run with id %v found", mcapId), http.StatusNotFound)
-		}
-		return NewHandlerError(err.Error(), http.StatusInternalServerError)
-	}
-	responseMcap := models.VehicleRunSerialize(ctx, h.s3Repository, *mcap)
-	data := make([]models.VehicleRunModelResponse, 1)
-	data[0] = responseMcap
-
-	response := make(map[string]interface{})
-	response["message"] = ""
-	response["data"] = data
-
-	render.JSON(w, r, response)
 
 	return nil
 }

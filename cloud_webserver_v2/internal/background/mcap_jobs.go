@@ -14,6 +14,12 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 )
 
+// PostProcessMCAPUploadJob handles the post processing of MCAP files.
+// It reads MCAPs and sends the messages to multiple subscribers which
+// handle operations like creating HDF5 files and generating graphs.
+// It also saves all this information to the database and stores files on S3.
+// PostProcessMCAPUploadJob serves as a wrapper struct to hold the Process function
+// so it implicitely inherits FileJobProcessor.
 type PostProcessMCAPUploadJob struct{}
 
 func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) error {
@@ -21,113 +27,21 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	fp.setCurrentlyProcessing(true)
 	fp.updateJobStatus(job, StatusProcessing)
 
-	// mcapFile processing logic here
-	mcapFile, err := os.Open(job.FilePath)
-	if err != nil {
-		return fmt.Errorf("could not open mcapFile %v, received error %v", job.Filename, err)
-	}
-	defer mcapFile.Close()
-	log.Printf("Opened mcapFile %v", job.Filename)
-
-	mcapUtils := utils.NewMcapUtils()
-
-	reader, err := mcapUtils.NewReader(mcapFile)
-	if err != nil {
-		return fmt.Errorf("could not create mcap reader: %v", err)
-	}
-
-	info, err := reader.Info()
-	if err != nil {
-		return fmt.Errorf("could not get info for mcap reader: %v", err)
-	}
-
-	err = mcapUtils.LoadAllSchemas(info)
-	if err != nil {
-		return err
-	}
-
-	schemaList, err := mcapUtils.GetMcapSchemaList(reader)
-	if err != nil {
-		return err
-	}
-
-	message_iterator, err := reader.Messages()
-	if err != nil {
-		return fmt.Errorf("could not get mcap mesages: %v", err)
-	}
-
-	// This is all the subsribers relavent to handling an MCAP mcapFile. You can attach more workers here if need be.
-	subscriberMapping := make(map[string]messaging.SubscriberFunc)
-	subscriberMapping["vn_plot"] = messaging.PlotLatLon
-	subscriberMapping["matlab_writer"] = messaging.CreateRawMatlabFile
-
-	publisher := messaging.NewPublisher(true)
-	subscriber_names := make([]string, len(subscriberMapping))
-	idx := 0
-	for subscriber_name, function := range subscriberMapping {
-		subscriber_names[idx] = subscriber_name
-		publisher.Subscribe(idx+1, subscriber_name, function)
-		idx++
-	}
 	genericFileName := strings.Split(job.Filename, ".")[0]
-
-	log.Printf("Starting subsribers for job: %s", job.ID)
-	go func() {
-		// Some subscribers may need specfic information before being able to perform their tasks. For example, (CreateInterpolatedMatlabFile)
-		// Because of this, they will need their first message to set paramaters. This is what initMessage is for.
-		initMessage := make(map[string]interface{})
-		initMessage["schema_list"] = schemaList
-		initMessage["file_name"] = genericFileName
-		initMessage["file_path"] = job.FileDir
-		routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
-
-		for {
-			schema, channel, message, err := message_iterator.NextInto(nil)
-
-			// Checks if we have no more messages to read from the MCAP. If so, it lets the subscribers know
-			if errors.Is(err, io.EOF) {
-				routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
-				break
-			}
-
-			if err != nil {
-				log.Printf("error reading mcap message: %v", err)
-				return
-			}
-
-			if schema == nil {
-				log.Printf("no schema found for channel ID: %d, channel: %v", message.ChannelID, channel)
-				continue
-			}
-
-			decodedMessage, err := mcapUtils.GetDecodedMessage(schema, message)
-			if err != nil {
-				log.Printf("could not decode message: %v", err)
-				continue
-			}
-
-			routeMessagesToSubscribers(ctx, publisher, decodedMessage, &subscriber_names)
-		}
-
-		// Need to make sure to close the subscribers or our code will hang and wait forever
-		publisher.CloseAllSubscribers()
-	}()
-
-	publisher.WaitForClosure()
-
-	log.Printf("All subscribers finished for job %v", job.ID)
-
-	results := publisher.Results()
+	mcapResults, err := p.readMCAPMessages(ctx, job, genericFileName)
+	if err != nil {
+		return err
+	}
 
 	var hdf5Location string
-	if outer, ok := results["matlab_writer"]; ok {
+	if outer, ok := mcapResults["matlab_writer"]; ok {
 		if data, ok := outer.ResultData["file_path"]; ok {
 			hdf5Location = data.(string)
 		}
 	}
 
 	var vnLatLonPlotWriter *io.WriterTo
-	if outer, ok := results["vn_plot"]; ok {
+	if outer, ok := mcapResults["vn_plot"]; ok {
 		if data, ok := outer.ResultData["writer_to"]; ok {
 			vnLatLonPlotWriter = data.(*io.WriterTo)
 		}
@@ -159,7 +73,6 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	log.Printf("uploaded hdf5 file %v to s3", hdf5FileName)
 
 	vnLatLonPlotName := fmt.Sprintf("%v.png", genericFileName)
@@ -168,7 +81,6 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
 
 	if err := os.Remove(hdf5Location); err != nil {
@@ -227,7 +139,91 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	return nil
 }
 
-func routeMessagesToSubscribers(ctx context.Context, publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
+func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *FileJob, genericFileName string) (map[string]messaging.SubscriberResult, error) {
+	// mcapFile processing logic here
+	mcapFile, err := os.Open(job.FilePath)
+	if err != nil {
+		return nil, fmt.Errorf("could not open mcapFile %v, received error %v", job.Filename, err)
+	}
+	defer mcapFile.Close()
+	log.Printf("Opened mcapFile %v", job.Filename)
+
+	mcapUtils := utils.NewMcapUtils()
+
+	mcapReader, err := mcapUtils.NewReader(mcapFile)
+	if err != nil {
+		return nil, fmt.Errorf("could not create mcap reader: %v", err)
+	}
+
+	message_iterator, err := mcapReader.Reader.Messages()
+	if err != nil {
+		return nil, fmt.Errorf("could not get mcap mesages: %v", err)
+	}
+
+	// This is all the subsribers relavent to handling an MCAP mcapFile. You can attach more workers here if need be.
+	subscriberMapping := make(map[string]messaging.SubscriberFunc)
+	subscriberMapping["vn_plot"] = messaging.PlotLatLon
+	subscriberMapping["matlab_writer"] = messaging.CreateRawMatlabFile
+
+	publisher := messaging.NewPublisher(true)
+	subscriber_names := make([]string, len(subscriberMapping))
+	idx := 0
+	for subscriber_name, function := range subscriberMapping {
+		subscriber_names[idx] = subscriber_name
+		publisher.Subscribe(idx+1, subscriber_name, function)
+		idx++
+	}
+
+	log.Printf("Starting subsribers for job: %s", job.ID)
+	go func() {
+		// Some subscribers may need specfic information before being able to perform their tasks. For example, (CreateInterpolatedMatlabFile)
+		// Because of this, they will need their first message to set paramaters. This is what initMessage is for.
+		initMessage := make(map[string]interface{})
+		initMessage["schema_list"] = mcapReader.SchemaList
+		initMessage["file_name"] = genericFileName
+		initMessage["file_path"] = job.FileDir
+		p.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
+
+		for {
+			schema, channel, message, err := message_iterator.NextInto(nil)
+
+			// Checks if we have no more messages to read from the MCAP. If so, it lets the subscribers know
+			if errors.Is(err, io.EOF) {
+				p.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
+				break
+			}
+
+			if err != nil {
+				log.Printf("error reading mcap message: %v", err)
+				return
+			}
+
+			if schema == nil {
+				log.Printf("no schema found for channel ID: %d, channel: %v", message.ChannelID, channel)
+				continue
+			}
+
+			decodedMessage, err := mcapUtils.GetDecodedMessage(schema, message)
+			if err != nil {
+				log.Printf("could not decode message: %v", err)
+				continue
+			}
+
+			p.routeMessagesToSubscribers(ctx, publisher, decodedMessage, &subscriber_names)
+		}
+
+		// Need to make sure to close the subscribers or our code will hang and wait forever
+		publisher.CloseAllSubscribers()
+	}()
+
+	publisher.WaitForClosure()
+
+	log.Printf("All subscribers finished for job %v", job.ID)
+
+	return publisher.Results(), nil
+}
+
+func (p *PostProcessMCAPUploadJob) routeMessagesToSubscribers(ctx context.Context, publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
 	// List of all the workers we want to send the messages to
 	var subscriberNames []string
 	switch topic := decodedMessage.Topic; topic {

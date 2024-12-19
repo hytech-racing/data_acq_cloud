@@ -9,13 +9,16 @@ import (
 	"github.com/jhump/protoreflect/dynamic"
 )
 
+// This constructs a HDF5 file with a stream of messages it gets from a MCAP file.
+// It chunk writes to the HDF5 file in groups.
+// It does this by saving information into allSignalData and occasionally chunk writes all the data into the HDF5 file.
 type RawMatlabWriter struct {
-	allSignalData   map[string]map[string]interface{}
 	firstTime       *float64
-	failedMessages  [][2]interface{}
 	HDF5Writer      *utils.HDF5Writer
-	maxSignalLength int // Constantly updated so we know what the max len of a data slice is
+	allSignalData   map[string]map[string]interface{}
 	filePath        string
+	failedMessages  [][2]interface{}
+	maxSignalLength int // Constantly updated so we know what the max len of a data slice is
 }
 
 func CreateRawMatlabWriter(filePath, fileName string) (*RawMatlabWriter, error) {

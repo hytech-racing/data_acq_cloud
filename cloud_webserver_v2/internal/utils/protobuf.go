@@ -12,13 +12,11 @@ import (
 // MCAP doesn't have a native protobuf wrapper for golang, so we have to
 // dynamically decode the schemas and messages ourselves :)
 
+// ProtobufUtils contains descriptions and descriptors which are stored to allow for
+// faster and dynamic parsing of protobuf encoded data
 type ProtobufUtils struct {
 	protoDescriptions  map[string]*desc.FileDescriptor
 	protoDescriptorSet *descriptorpb.FileDescriptorSet
-}
-
-type ProtobufMessage struct {
-	name string
 }
 
 func NewProtobufUtils() *ProtobufUtils {

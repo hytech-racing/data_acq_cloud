@@ -9,7 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-type S3Session struct {
+// s3Session establishes a new connection with S3
+type s3Session struct {
 	client        *s3.Client
 	presignClient *s3.PresignClient
 	bucket        string
@@ -28,7 +29,7 @@ func NewS3Session(accessKey string, secretKey string, region string, bucket stri
 	client := s3.NewFromConfig(cfg)
 	presignClient := s3.NewPresignClient(client)
 
-	session := &S3Session{
+	session := &s3Session{
 		client:        client,
 		bucket:        bucket,
 		presignClient: presignClient,

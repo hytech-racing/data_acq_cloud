@@ -9,6 +9,7 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 )
 
+// This handles all requests dealing with managing the uploads in the server
 type uploadHandler struct {
 	dbClient      *database.DatabaseClient
 	fileProcessor *background.FileProcessor

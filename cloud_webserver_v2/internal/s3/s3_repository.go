@@ -12,8 +12,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+// S3Repository allows for the server to interface with S3
 type S3Repository struct {
-	s3_session *S3Session
+	s3_session *s3Session
 }
 
 // Writes an object to the S3 bucket. You can think of an S3 object like a file.
@@ -33,7 +34,7 @@ func (s *S3Repository) WriteObjectWriterTo(ctx context.Context, writer *io.Write
 		Body:   reader,
 	})
 	if err != nil {
-		return fmt.Errorf("Couldn't upload file %v to %v:%v. Here's why: %v\n",
+		return fmt.Errorf("couldn't upload file %v to %v:%v. Here's why: %v",
 			objectName, s.s3_session.bucket, objectName, err)
 	}
 
@@ -47,7 +48,7 @@ func (s *S3Repository) WriteObjectReader(ctx context.Context, reader io.Reader, 
 		Body:   reader,
 	})
 	if err != nil {
-		return fmt.Errorf("Couldn't upload file %v to %v:%v. Here's why: %v\n",
+		return fmt.Errorf("couldn't upload file %v to %v:%v. Here's why: %v",
 			objectName, s.s3_session.bucket, objectName, err)
 	}
 
