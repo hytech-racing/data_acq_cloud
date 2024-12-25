@@ -1,8 +1,8 @@
 package subscribers
 
 import (
+	"fmt"
 	"io"
-	"log"
 	"math"
 
 	"go-hep.org/x/hep/hplot"
@@ -13,6 +13,7 @@ import (
 
 const earthRadius = 6371000 // Earth's radius in meters
 
+// LatLonToCartesian converts latitude and longtidue coordinates to a flat 2D LatLonToCartesian plane
 func LatLonToCartesian(lat, lon, originLat, originLon float64) (float64, float64) {
 	// Convert degrees to radians
 	lat *= math.Pi / 180
@@ -31,7 +32,10 @@ func LatLonToCartesian(lat, lon, originLat, originLon float64) (float64, float64
 	return x, y
 }
 
-func GeneratePlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) *io.WriterTo {
+// GenerateGonumPlot takes in x and y coordinates as well as the bounds of the plot
+// in the form of mins and maxs of the X and Y components.
+// If successful, it returns a writer to the Gonum plot
+func GenerateGonumPlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) (*io.WriterTo, error) {
 	p := plot.New()
 	p.Title.Text = "VN Position Data"
 	p.X.Label.Text = "x"
@@ -48,13 +52,13 @@ func GeneratePlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) *io.WriterT
 
 	err := plotutil.AddScatters(p, "VN Position Data", hplot.ZipXY(*xs, *ys))
 	if err != nil {
-		log.Fatalf("could not create scatters: %+v", err)
+		return nil, fmt.Errorf("could not create scatters: %+v", err)
 	}
 
 	writer, err := p.WriterTo(25*vg.Centimeter, 25*vg.Centimeter, "png")
 	if err != nil {
-		log.Fatalf("could not get plot writer: %+v", err)
+		return nil, fmt.Errorf("could not get plot writer: %+v", err)
 	}
 
-	return &writer
+	return &writer, nil
 }

@@ -39,6 +39,10 @@ func CreateRawMatlabWriter(filePath, fileName string) (*RawMatlabWriter, error) 
 	}, nil
 }
 
+// AddSignalValue adds the values of the decodedMessage to allSignalData.
+// If there exists a slice of signal values in allSignalData whose length is greater than
+// maxSignalLength, then AddSignalValue will chunk write all the data in allSignalData to the
+// currently open HDF5 file.
 func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) error {
 	if decodedMessage == nil || decodedMessage.Data == nil {
 		return nil
@@ -74,6 +78,7 @@ func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) e
 	return nil
 }
 
+// processSignalValue handles logic for whether to continue to dynamically decode the protobuf value or to directly add it to allSignalData
 func (w *RawMatlabWriter) processSignalValue(topic, signalName, signalPath string, value interface{}, logTime float64) {
 	dynamicMessage, ok := value.(*dynamic.Message)
 

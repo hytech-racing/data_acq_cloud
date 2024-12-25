@@ -109,7 +109,11 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 
 	}
 
-	writerTo := subscribers.GeneratePlot(&xs, &ys, minX, maxX, minY, maxY)
+	writerTo, err := subscribers.GenerateGonumPlot(&xs, &ys, minX, maxX, minY, maxY)
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
 	result := make(map[string]interface{})
 	result["writer_to"] = writerTo

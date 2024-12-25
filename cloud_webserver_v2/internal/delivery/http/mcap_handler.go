@@ -51,13 +51,15 @@ func NewMcapHandler(
 		// It limits the amount of uploads we accept to a pre-set limit
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
-		r.Get("/", handler.GetMcaps)
-		r.Get("/{id}", HandlerFunc(handler.GetMcap).ServeHTTP)
-		r.Delete("/{id}", HandlerFunc(handler.DeleteMcap).ServeHTTP)
+		r.Get("/", handler.GetMcapsFromFilters)
+		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
+		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
 	})
 }
 
-func (h *mcapHandler) GetMcaps(w http.ResponseWriter, r *http.Request) {
+// GetMcapsFromFilters takes in filters through Query parameters and will respond with a
+// map with a message and data field where data contains the filtered MCAPs
+func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	queryParams := r.URL.Query()
 
@@ -123,7 +125,8 @@ func (h *mcapHandler) GetMcaps(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, data)
 }
 
-func (h *mcapHandler) GetMcap(w http.ResponseWriter, r *http.Request) *HandlerError {
+// GetMcapFromID takes in an ID from a URL param and responds with an MCAP with that ID.
+func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
 
 	mcapId := chi.URLParam(r, "id")
@@ -156,6 +159,7 @@ func (h *mcapHandler) GetMcap(w http.ResponseWriter, r *http.Request) *HandlerEr
 	return nil
 }
 
+// UploadMcap allows for a single MCAP file upload and enqueues the job in the FileProcessor
 func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -166,7 +170,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	file := r.MultipartForm.File["file"]
 	jobIds := make([]string, 1, len(file))
 	fileHeader := file[0]
-	job, err := h.fileProcessor.QueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
+	job, err := h.fileProcessor.EnqueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
 	if err != nil {
 		log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
 		return
@@ -180,6 +184,7 @@ func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, response)
 }
 
+// BulkUploadMcap allows for a many MCAP file uploads and enqueues the jobs in the FileProcessor
 func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -190,7 +195,7 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	files := r.MultipartForm.File["files"]
 	jobIds := make([]string, 0, len(files))
 	for _, fileHeader := range files {
-		job, err := h.fileProcessor.QueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
+		job, err := h.fileProcessor.EnqueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
 		if err != nil {
 			log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
 			continue
@@ -205,7 +210,8 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, response)
 }
 
-func (h *mcapHandler) DeleteMcap(w http.ResponseWriter, r *http.Request) *HandlerError {
+// DeleteMcapFromID takes in an ID from a URL param and deletes the MCAP information from MongoDB and from S3.
+func (h *mcapHandler) DeleteMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
 
 	mcapId := chi.URLParam(r, "id")

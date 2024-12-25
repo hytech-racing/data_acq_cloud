@@ -35,6 +35,7 @@ func NewMongoVehicleRunRepository(dbClient *mongo.Client, database *mongo.Databa
 	}, nil
 }
 
+// Inserts a VehicleRunModel into the MongoDB database
 func (repo *MongoVehicleRunRepository) Save(ctx context.Context, vehicleRun *models.VehicleRunModel) (*models.VehicleRunModel, error) {
 	res, err := repo.collection.InsertOne(ctx, vehicleRun)
 	if err != nil {
@@ -46,6 +47,7 @@ func (repo *MongoVehicleRunRepository) Save(ctx context.Context, vehicleRun *mod
 	return vehicleRun, nil
 }
 
+// Get a VehicleRunModel from the MongoDB database with filters
 func (repo *MongoVehicleRunRepository) GetWithVehicleFilters(ctx context.Context, filters *bson.M) ([]models.VehicleRunModel, error) {
 	cursor, err := repo.collection.Find(ctx, filters)
 	if err != nil {
@@ -65,6 +67,7 @@ func (repo *MongoVehicleRunRepository) GetWithVehicleFilters(ctx context.Context
 	return modelResults, nil
 }
 
+// Get a VehicleRunModel from the MongoDB database from a VehicleRun ID
 func (repo *MongoVehicleRunRepository) GetVehicleRunFromId(ctx context.Context, id primitive.ObjectID) (*models.VehicleRunModel, error) {
 	filter := bson.M{"_id": id}
 	result := repo.collection.FindOne(ctx, filter)
@@ -81,6 +84,7 @@ func (repo *MongoVehicleRunRepository) GetVehicleRunFromId(ctx context.Context, 
 	return &model, nil
 }
 
+// Delete a VehicleRunModel from the MongoDB database from a VehicleRun ID
 func (repo *MongoVehicleRunRepository) DeleteVehicleRunFromId(ctx context.Context, id primitive.ObjectID) error {
 	filter := bson.M{"_id": id}
 	_, err := repo.collection.DeleteOne(ctx, filter)

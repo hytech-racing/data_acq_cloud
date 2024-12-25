@@ -113,6 +113,8 @@ type FileJob struct {
 	Size int64
 }
 
+// NewFileProcessor creates a new File Processor struct instance and populates is with
+// the pre-existing file data if such information exists.
 func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.DatabaseClient, s3Repository *s3.S3Repository) (*FileProcessor, error) {
 	err := os.MkdirAll(uploadDir, 0o755)
 	if err != nil {
@@ -145,10 +147,17 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 	}
 
 	fp.TotalSize.Store(totalSize)
+	go fp.syncTotalSize()
+
 	return fp, nil
 }
 
-func (fp *FileProcessor) QueueFile(fileHeader *multipart.FileHeader, processor FileJobProcessor) (*FileJob, error) {
+// EnqueueFile returns a new FileJob created from a file header and a processor logic function.
+// The returned FileJob is independent of other jobs and contains all the relevent information needed.
+// to perform its action(s).
+// EnqueueFile adds the new FileJob to the current queue of jobs being executed by the FileProcessor.
+// A successful job creation and enqueue will return a FileJob struct instance.
+func (fp *FileProcessor) EnqueueFile(fileHeader *multipart.FileHeader, processor FileJobProcessor) (*FileJob, error) {
 	src, err := fileHeader.Open()
 	if err != nil {
 		return nil, err
@@ -187,6 +196,8 @@ func (fp *FileProcessor) QueueFile(fileHeader *multipart.FileHeader, processor F
 	return job, nil
 }
 
+// jobQueueListener creates a listener which continuously polls the channels to check if there
+// is a new file job to process or if it should gracefully stop. It dequeues and processes the jobs here.
 func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 	defer fp.processingWg.Done()
 
@@ -211,6 +222,7 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 	}
 }
 
+// updateJobStatus is threadsafe and updates the status of a FileJob.
 func (fp *FileProcessor) updateJobStatus(job *FileJob, status string) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
@@ -219,26 +231,31 @@ func (fp *FileProcessor) updateJobStatus(job *FileJob, status string) {
 	job.UpdatedAt = time.Now()
 }
 
+// setCurrentlyProcessing is threadsafe and sets the activelyProcessing bool.
 func (fp *FileProcessor) setCurrentlyProcessing(flag bool) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
 	fp.activelyProcessing = flag
 }
 
+// Start takes in context.Context and strats the FileProcessor.
 func (fp *FileProcessor) Start(ctx context.Context) {
 	fp.processingWg.Add(1)
 	go fp.jobQueueListener(ctx)
 }
 
+// Stop stops the file processor and waits for its closure.
 func (fp *FileProcessor) Stop() {
 	close(fp.stopChan)
 	fp.processingWg.Wait()
 }
 
+// MaxTotalSize returns the max size allocated to the FileProcessor
 func (fp *FileProcessor) MaxTotalSize() int64 {
 	return fp.maxTotalSize
 }
 
+// syncTotalSize syncs the queued file size between the middleware's estimate and the actual size
 func (fp *FileProcessor) syncTotalSize() {
 	for {
 		time.Sleep(1 * time.Minute)

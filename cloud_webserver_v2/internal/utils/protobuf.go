@@ -35,6 +35,8 @@ func (pb *ProtobufUtils) GetDecodedSchema(schema *mcap.Schema) (*desc.FileDescri
 	return pb.loadSchema(schema)
 }
 
+// loadSchema takes in an mcap schema and attempts to dynamically decode it using its dependencies
+// If successful, it will return the file descriptor for the MCAP schema's toplevel schema
 func (pb *ProtobufUtils) loadSchema(schema *mcap.Schema) (*desc.FileDescriptor, error) {
 	// We are using this as a cache so we can use the cached descriptors to decode new ones
 	fdSet := &pb.protoDescriptorSet

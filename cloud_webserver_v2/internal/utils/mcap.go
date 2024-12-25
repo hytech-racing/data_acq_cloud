@@ -93,6 +93,7 @@ func (m *McapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message
 	return &decodedMessage, nil
 }
 
+// LoadAllSchemas loads all the protobuf schemas found in the MCAP file into
 func (m *McapUtils) LoadAllSchemas(info *mcap.Info) error {
 	schemas := info.Schemas
 	retrySchemas := make([]*mcap.Schema, 0)
