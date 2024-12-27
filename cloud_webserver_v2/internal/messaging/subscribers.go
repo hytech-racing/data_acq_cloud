@@ -21,8 +21,12 @@ Lots of the internal logic for the subscribers lives in the messaging/subscriber
 */
 
 const (
-	EOF  = "EOF_MESSAGE"
-	INIT = "INIT_MESSAGE"
+	EOF                 = "EOF_MESSAGE"
+	INIT                = "INIT_MESSAGE"
+	PRINT_MESSAGES      = "PRINT_MESSAGES"
+	VN_PLOT             = "VN_PLOT"
+	RAW_MATLAB_WRITER   = "MATLAB_WRITER"
+	GET_SCHEMA_VERSIONS = "GET_SCHEMA_VERSIONS"
 )
 
 // Subscriber function type
@@ -203,6 +207,26 @@ func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMess
 
 	result := make(map[string]interface{})
 	result["file_path"] = matlabWriter.FilePath()
+	if results != nil {
+		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
+	}
+}
+
+func GetSchemaVersions(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	schemaMap := make(map[string]string)
+	for msg := range ch {
+		data := msg.GetContent().Data
+		for schema, version := range data {
+			if reflect.TypeOf(version).Kind() != reflect.String {
+				continue
+			}
+
+			schemaMap[schema] = version.(string)
+		}
+	}
+
+	result := make(map[string]interface{})
+	result["versions"] = schemaMap
 	if results != nil {
 		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
 	}

@@ -58,8 +58,9 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 
 	// This is all the subsribers relavent to handling an MCAP mcapFile. You can attach more workers here if need be.
 	subscriberMapping := make(map[string]messaging.SubscriberFunc)
-	subscriberMapping["vn_plot"] = messaging.PlotLatLon
-	subscriberMapping["matlab_writer"] = messaging.CreateRawMatlabFile
+	subscriberMapping[messaging.VN_PLOT] = messaging.PlotLatLon
+	subscriberMapping[messaging.RAW_MATLAB_WRITER] = messaging.CreateRawMatlabFile
+	subscriberMapping[messaging.GET_SCHEMA_VERSIONS] = messaging.GetSchemaVersions
 
 	publisher := messaging.NewPublisher(true)
 	subscriber_names := make([]string, len(subscriberMapping))
@@ -120,14 +121,14 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	results := publisher.Results()
 
 	var hdf5Location string
-	if outer, ok := results["matlab_writer"]; ok {
+	if outer, ok := results[messaging.RAW_MATLAB_WRITER]; ok {
 		if data, ok := outer.ResultData["file_path"]; ok {
 			hdf5Location = data.(string)
 		}
 	}
 
 	var vnLatLonPlotWriter *io.WriterTo
-	if outer, ok := results["vn_plot"]; ok {
+	if outer, ok := results[messaging.VN_PLOT]; ok {
 		if data, ok := outer.ResultData["writer_to"]; ok {
 			vnLatLonPlotWriter = data.(*io.WriterTo)
 		}
@@ -205,12 +206,20 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	vnPlotFiles := []models.FileModel{vnPlotFileEntry}
 	contentFiles["vn_lat_lon_plot"] = vnPlotFiles
 
+	var schemaVersions map[string]string
+	if outer, ok := results[messaging.GET_SCHEMA_VERSIONS]; ok {
+		if data, ok := outer.ResultData["versions"]; ok {
+			schemaVersions = data.(map[string]string)
+		}
+	}
+
 	vehicleRunModel := &models.VehicleRunModel{
-		Date:         job.Date,
-		CarModel:     "HT08",
-		McapFiles:    mcapFiles,
-		MatFiles:     matFiles,
-		ContentFiles: contentFiles,
+		Date:           job.Date,
+		CarModel:       "HT08",
+		McapFiles:      mcapFiles,
+		MatFiles:       matFiles,
+		ContentFiles:   contentFiles,
+		SchemaVersions: schemaVersions,
 	}
 
 	_, err = fp.dbClient.VehicleRunUseCase().CreateVehicleRun(ctx, vehicleRunModel)
@@ -235,6 +244,8 @@ func routeMessagesToSubscribers(ctx context.Context, publisher *messaging.Publis
 		subscriberNames = append(subscriberNames, *allNames...)
 	case "hytech_msgs.VNData":
 		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
+	case "hytech_msgs.Versions":
+		subscriberNames = append(subscriberNames, "get_schema_vesions")
 	default:
 		subscriberNames = append(subscriberNames, "matlab_writer")
 	}
