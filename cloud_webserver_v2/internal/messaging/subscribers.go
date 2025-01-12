@@ -15,7 +15,7 @@ import (
 
 /*
 This is where all the subscribers live.
-KEY NOTE: NOT ALL OF THESE ARE RAN AT THE SAME TIME.
+NOTE: NOT ALL OF THESE ARE RAN AT THE SAME TIME.
 Any publisher can send messages to any combination of these subscribers.
 Lots of the internal logic for the subscribers lives in the messaging/subscribers directory.
 */
@@ -25,19 +25,14 @@ const (
 	INIT = "INIT_MESSAGE"
 )
 
-// Subscriber function type
+// Subscriber function type serves as a common header for all subscribers to a publisher
 type SubscriberFunc func(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult)
 
 func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	mx_accel := 0.0
 	mx_y_accel := 0.0
 	for msg := range ch {
-		if msg.content.Topic != EOF {
-			// fmt.Printf("%v \n", msg.content.Topic)
-		}
-		if msg.content.Topic == EOF {
-			fmt.Println("EOF LMAO")
-		}
+		println(msg.content.Data)
 	}
 
 	result := make(map[string]interface{})
@@ -82,11 +77,11 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 			}
 
 			if lat, ok = decodedLat.(float32); !ok {
-				log.Println("lat is not a float, it is a: %v ", reflect.TypeOf(lat))
+				log.Printf("lat is not a float, it is a: %v \n", reflect.TypeOf(lat))
 				continue
 			}
 			if lon, ok = decodedLon.(float32); !ok {
-				log.Println("lon is not a float, it is a: %v ", reflect.TypeOf(lon))
+				log.Printf("lon is not a float, it is a: %v \n", reflect.TypeOf(lon))
 				continue
 			}
 
@@ -114,7 +109,11 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 
 	}
 
-	writerTo := subscribers.GeneratePlot(&xs, &ys, minX, maxX, minY, maxY)
+	writerTo, err := subscribers.GenerateGonumPlot(&xs, &ys, minX, maxX, minY, maxY)
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
 	result := make(map[string]interface{})
 	result["writer_to"] = writerTo

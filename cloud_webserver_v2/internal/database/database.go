@@ -10,6 +10,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// A DatabaseClient establishes a connection to the MongoDB database and allows
+// for interfacing through the different collections through it.
+// Whoever uses this struct to establish a connection to the database is responsible
+// for calling the Disconnect() method to gracefully disconnect from the database
 type DatabaseClient struct {
 	databaseClient       *mongo.Client
 	vehicleRunRepository *repository.MongoVehicleRunRepository

@@ -32,6 +32,7 @@ func NewHDF5Writer(filename string) (*HDF5Writer, error) {
 	}, nil
 }
 
+// ChunkWrite creates a new group in the HDF5 file and writes all data in the signalData map into it
 func (writer *HDF5Writer) ChunkWrite(signalData map[string]map[string]interface{}) error {
 	newChunk, err := writer.file.CreateGroup(fmt.Sprintf("/data/chunk_%d", writer.currentChunk))
 	if err != nil {
@@ -53,6 +54,8 @@ func (writer *HDF5Writer) ChunkWrite(signalData map[string]map[string]interface{
 	return nil
 }
 
+// exploreAndAddDataset recursively explores the data interface and performs a deep copy of the data
+// interface and writes the information into its respective dataset in the current HDF5 Group
 func (writer *HDF5Writer) exploreAndAddDataset(path string, chunk *hdf5.Group, data interface{}) error {
 	switch data.(type) {
 	case map[string]map[string]interface{}:
@@ -100,6 +103,7 @@ func (writer *HDF5Writer) exploreAndAddDataset(path string, chunk *hdf5.Group, d
 	return nil
 }
 
+// FlattenSlice flattens a 2D slice to 1D
 func FlattenSlice(data [][]float64) []float64 {
 	flattened := make([]float64, len(data)*len(data[0]))
 	for i, innerList := range data {
