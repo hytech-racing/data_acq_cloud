@@ -16,6 +16,7 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/logging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
@@ -133,6 +134,11 @@ func main() {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
+	// Route crash test panic
+	router.Handle("/logging-crash-test", handler.HandlerFunc(func(w http.ResponseWriter, r *http.Request) *handler.HandlerError {
+		panic("this is a test panic")
+	}))
+
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 
@@ -140,25 +146,30 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	// Initialize Crash Logger Globally
+	logging.InitLogger()
+	customLogger := logging.GetLogger()
+	defer customLogger.RecoverAndLogPanic()
+	
 	go func() {
 		// Wait for a signal, then gracefully shut down
 		<-quit
 		println()
 		log.Println("Shutting down server...")
-
+		
 		log.Println("Waiting for file processor to finish...")
 		fileProcessor.Stop()
-
+		
 		// Gracefully disconnect from MongoDB
 		mongoShutdownCtx, mongoShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer mongoShutdownCancel()
-
+		
 		if err := dbClient.Disonnect(mongoShutdownCtx); err != nil {
 			log.Println("Error while disconnecting MongoDB:", err)
 		} else {
 			log.Println("Disconnected from MongoDB")
 		}
-
+			
 		os.Exit(0)
 	}()
 
