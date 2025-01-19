@@ -126,7 +126,11 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	times := make([]float64, 0)
 	vels := make([]float64, 0)
+	first := true
+	var initialTime uint64
 	minTime, maxTime, minVel, maxVel := math.MaxFloat64, math.SmallestNonzeroFloat64, math.MaxFloat64, math.SmallestNonzeroFloat64
+
+	i := 0
 
 	for msg := range ch {
 		if msg.GetContent().Topic == EOF {
@@ -140,8 +144,6 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 		var rpm float32
 		var logTime uint64
 		var ok bool
-
-		logTime = msg.GetContent().LogTime
 
 		if veh_vec_floatDynamicMessage, found := data["current_rpms"].(*dynamic.Message); found {
 			fl_Descriptor := veh_vec_floatDynamicMessage.FindFieldDescriptorByName("FL")
@@ -167,14 +169,27 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 			}
 
 			rpm = (fr + fl) / 2
+			logTime = msg.GetContent().LogTime
+
+			if i < 5 {
+				log.Printf("Log Time Reading: %v\n", logTime)
+				log.Printf("FL Reading: %v\n", fl)
+				log.Printf("FR Reading: %v\n", fr)
+				i++
+			}
 		}
 
 		if rpm == 0 {
 			continue
 		}
 
-		vel := subscribers.RPMToLinearVelocity(rpm, 0.0)
-		time := subscribers.LogTimeToTime(logTime)
+		if first {
+			initialTime = logTime
+			first = false
+		}
+
+		vel := subscribers.RPMToLinearVelocity(rpm)
+		time := subscribers.LogTimeToTime(logTime, initialTime)
 
 		minVel = math.Min(minVel, vel)
 		maxVel = math.Max(maxVel, vel)
