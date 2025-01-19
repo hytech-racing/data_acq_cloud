@@ -130,8 +130,6 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 	var initialTime uint64
 	minTime, maxTime, minVel, maxVel := math.MaxFloat64, math.SmallestNonzeroFloat64, math.MaxFloat64, math.SmallestNonzeroFloat64
 
-	i := 0
-
 	for msg := range ch {
 		if msg.GetContent().Topic == EOF {
 			break
@@ -170,18 +168,14 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 
 			rpm = (fr + fl) / 2
 			logTime = msg.GetContent().LogTime
-
-			if i < 5 {
-				log.Printf("Log Time Reading: %v\n", logTime)
-				log.Printf("FL Reading: %v\n", fl)
-				log.Printf("FR Reading: %v\n", fr)
-				i++
-			}
 		}
 
 		if rpm == 0 {
 			continue
 		}
+
+		log.Printf("Log Time Reading: %v\n", logTime)
+		log.Printf("RPM Reading: %v\n", rpm)
 
 		if first {
 			initialTime = logTime
@@ -190,6 +184,9 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 
 		vel := subscribers.RPMToLinearVelocity(rpm)
 		time := subscribers.LogTimeToTime(logTime, initialTime)
+
+		log.Printf("Time Calc: %v\n", time)
+		log.Printf("Vel Calc: %v\n\n\n", vel)
 
 		minVel = math.Min(minVel, vel)
 		maxVel = math.Max(maxVel, vel)

@@ -3,7 +3,6 @@ package subscribers
 import (
 	"fmt"
 	"io"
-	"math"
 
 	"go-hep.org/x/hep/hplot"
 	"gonum.org/v1/plot"
@@ -11,12 +10,16 @@ import (
 	"gonum.org/v1/plot/vg"
 )
 
-const wheelDiameter = 1 // meters
 const PI = 3.14159265359
+
+const GEARBOX_RATIO = 11.86
+const WHEEL_DIAMETER = 0.4064 // meters
+const RPM_TO_METERS_PER_SECOND = WHEEL_DIAMETER * PI / GEARBOX_RATIO / 60.0
+const RPM_TO_KILOMETERS_PER_HOUR = RPM_TO_METERS_PER_SECOND * 3600.0 / 1000.0
 
 // Returns velocity in m/s
 func RPMToLinearVelocity(rpm float32) float64 {
-	return float64(wheelDiameter) * PI * float64(rpm) / 60.0
+	return float64(rpm) * RPM_TO_METERS_PER_SECOND
 }
 
 func LogTimeToTime(logTime uint64, initialTime uint64) float64 {
@@ -31,12 +34,12 @@ func GenerateVelPlot(times, vels *[]float64, minTime, maxTime, minVel, maxVel fl
 	p.HideAxes()
 
 	// Need to set the max/min for each axis of the plot or else the plot will be stretched.
-	min_value := math.Min(minTime, minVel)
-	max_value := math.Max(maxTime, maxVel)
-	p.X.Min = min_value
-	p.Y.Min = min_value
-	p.X.Max = max_value
-	p.Y.Max = max_value
+	// min_value := math.Min(minTime, minVel)
+	// max_value := math.Max(maxTime, maxVel)
+	p.X.Min = minTime
+	p.Y.Min = maxTime
+	p.X.Max = minVel
+	p.Y.Max = maxVel
 
 	err := plotutil.AddScatters(p, "VN Velocity Data", hplot.ZipXY(*times, *vels))
 	if err != nil {

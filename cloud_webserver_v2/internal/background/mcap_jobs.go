@@ -88,7 +88,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	log.Printf("uploaded hdf5 file %v to s3", hdf5FileName)
 
 	// Uploading Lat-Lon file to S3
-	vnLatLonPlotName := fmt.Sprintf("%v.png", genericFileName)
+	vnLatLonPlotName := fmt.Sprintf("%v_LatLon.png", genericFileName)
 	vnLatLonPlotFileObjectPath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnLatLonPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath)
 	if err != nil {
@@ -97,7 +97,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
 
 	// Uploading Time-Vel file to S3
-	vnTimeVelPlotName := fmt.Sprintf("%v.png", genericFileName)
+	vnTimeVelPlotName := fmt.Sprintf("%v_Vel.png", genericFileName)
 	vnTimeVelPlotFileObjectPath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnTimeVelPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath)
 	if err != nil {
