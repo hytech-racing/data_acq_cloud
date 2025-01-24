@@ -40,6 +40,12 @@ var buzz string
 
 func main() {
 	println(buzz)
+
+	// Initialize Crash Logger Globally
+	logging.InitLogger()
+	customLogger := logging.GetLogger()
+	defer customLogger.RecoverAndLogPanic()
+
 	log.Println("Server starting...")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -134,22 +140,12 @@ func main() {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	// Route crash test panic
-	router.Handle("/logging-crash-test", handler.HandlerFunc(func(w http.ResponseWriter, r *http.Request) *handler.HandlerError {
-		panic("this is a test panic")
-	}))
-
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	// Initialize Crash Logger Globally
-	logging.InitLogger()
-	customLogger := logging.GetLogger()
-	defer customLogger.RecoverAndLogPanic()
 	
 	go func() {
 		// Wait for a signal, then gracefully shut down

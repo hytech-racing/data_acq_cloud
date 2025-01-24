@@ -2,6 +2,7 @@ package logging
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,6 +26,7 @@ func InitLogger() {
 			logs:    make([]string, 10),
 			maxLogs: 10,
 		}
+		redirectLogsToLogger()
 	})
 }
 
@@ -46,6 +48,17 @@ func (l *Logger) Log(level, message string) {
 	defer l.mu.Unlock()
 	l.logs[l.logIndex] = formattedMessage
 	l.logIndex = (l.logIndex + 1) % l.maxLogs
+}
+
+func (l *Logger) LogF(format string, a ...any) {
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	formattedMessage := fmt.Sprintf("[%s] [%s] %s", timestamp, level, message)
+	fmt.Printf(format, a);
+
+}
+
+func (l * Logger) LogStdout(message string) {
+	fmt.Println("This is redirected: ", message)
 }
 
 func (l *Logger) Info(message string) {
@@ -112,4 +125,29 @@ func (l *Logger) GetRecentLogs() []string {
 		}
 	}
 	return recentLogs
+}
+
+// This function allows the logger to store all logs from stdout
+func redirectLogsToLogger() {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		fmt.Printf("Cannot redirect log from pipe: %v\n", err)
+		return
+	}
+
+	os.Stdout = writer
+	os.Stderr = writer
+
+	go func() {
+		buffer := make([]byte, 1024)
+		for {
+			n, err := reader.Read(buffer)
+			if n > 0 {
+				GetLogger().LogStdout(string(buffer[:n]))
+			}
+			if err == io.EOF {
+				break
+			}
+		}
+	}()
 }
