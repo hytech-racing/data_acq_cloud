@@ -123,6 +123,94 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 	}
 }
 
+func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	times := make([]float64, 0)
+	vels := make([]float64, 0)
+	first := true
+	var initialTime uint64
+	minTime, maxTime, minVel, maxVel := math.MaxFloat64, math.SmallestNonzeroFloat64, math.MaxFloat64, math.SmallestNonzeroFloat64
+
+	for msg := range ch {
+		if msg.GetContent().Topic == EOF {
+			break
+		}
+
+		data := msg.GetContent().Data
+
+		var fl float32
+		var fr float32
+		var rpm float32
+		var logTime uint64
+		var ok bool
+
+		if veh_vec_floatDynamicMessage, found := data["current_rpms"].(*dynamic.Message); found {
+			fl_Descriptor := veh_vec_floatDynamicMessage.FindFieldDescriptorByName("FL")
+			fr_Descriptor := veh_vec_floatDynamicMessage.FindFieldDescriptorByName("FR")
+
+			if fl_Descriptor == nil || fr_Descriptor == nil {
+				continue
+			}
+
+			decodedFL := veh_vec_floatDynamicMessage.GetField(fl_Descriptor)
+			decodedFR := veh_vec_floatDynamicMessage.GetField(fr_Descriptor)
+			if decodedFL == nil || decodedFL == nil {
+				continue
+			}
+
+			if fl, ok = decodedFL.(float32); !ok {
+				log.Printf("fl is not a float, it is a: %v \n", reflect.TypeOf(fl))
+				continue
+			}
+			if fr, ok = decodedFR.(float32); !ok {
+				log.Printf("fr is not a float, it is a: %v \n", reflect.TypeOf(fr))
+				continue
+			}
+
+			rpm = fr
+			logTime = msg.GetContent().LogTime
+		}
+
+		if rpm == 0 {
+			continue
+		}
+
+		// log.Printf("Log Time Reading: %v\n", logTime)
+		// log.Printf("RPM Reading: %v\n", rpm)
+
+		if first {
+			initialTime = logTime
+			first = false
+		}
+
+		vel := subscribers.RPMToLinearVelocity(rpm)
+		time := subscribers.LogTimeToTime(logTime, initialTime)
+
+		// log.Printf("Time Calc: %v\n", time)
+		// log.Printf("Vel Calc: %v\n\n\n", vel)
+
+		minVel = math.Min(minVel, vel)
+		maxVel = math.Max(maxVel, vel)
+		minTime = math.Min(minTime, time)
+		maxTime = math.Max(maxTime, time)
+
+		vels = append(vels, vel)
+		times = append(times, time)
+	}
+
+	writerTo, err := subscribers.GenerateVelPlot(&times, &vels, minTime, maxTime, minVel, maxVel)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	result := make(map[string]interface{})
+	result["writer_to"] = writerTo
+
+	if results != nil {
+		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
+	}
+}
+
 func CreateInterpolatedMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	var matlabWriter *subscribers.InterpolatedMatlabWriter
 	for msg := range ch {
