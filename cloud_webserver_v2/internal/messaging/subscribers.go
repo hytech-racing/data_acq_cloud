@@ -166,7 +166,8 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 				continue
 			}
 
-			rpm = (fr + fl) / 2
+			// rpm = (fr + fl) / 2
+			rpm = fr
 			logTime = msg.GetContent().LogTime
 		}
 

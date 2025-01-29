@@ -37,8 +37,8 @@ func GenerateVelPlot(times, vels *[]float64, minTime, maxTime, minVel, maxVel fl
 	// min_value := math.Min(minTime, minVel)
 	// max_value := math.Max(maxTime, maxVel)
 	p.X.Min = minTime
-	p.Y.Min = maxTime
-	p.X.Max = minVel
+	p.Y.Min = minVel
+	p.X.Max = maxTime
 	p.Y.Max = maxVel
 
 	err := plotutil.AddScatters(p, "VN Velocity Data", hplot.ZipXY(*times, *vels))
