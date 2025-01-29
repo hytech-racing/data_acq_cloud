@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"go-hep.org/x/hep/hplot"
 	"gonum.org/v1/plot"
-	"gonum.org/v1/plot/plotutil"
+	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
 )
 
@@ -17,7 +16,6 @@ const WHEEL_DIAMETER = 0.4064 // meters
 const RPM_TO_METERS_PER_SECOND = WHEEL_DIAMETER * PI / GEARBOX_RATIO / 60.0
 const RPM_TO_KILOMETERS_PER_HOUR = RPM_TO_METERS_PER_SECOND * 3600.0 / 1000.0
 
-// Returns velocity in m/s
 func RPMToLinearVelocity(rpm float32) float64 {
 	return float64(rpm) * RPM_TO_METERS_PER_SECOND
 }
@@ -33,18 +31,22 @@ func GenerateVelPlot(times, vels *[]float64, minTime, maxTime, minVel, maxVel fl
 	p.Y.Label.Text = "velocity (m/s)"
 	p.HideAxes()
 
-	// Need to set the max/min for each axis of the plot or else the plot will be stretched.
-	// min_value := math.Min(minTime, minVel)
-	// max_value := math.Max(maxTime, maxVel)
 	p.X.Min = minTime
 	p.Y.Min = minVel
 	p.X.Max = maxTime
 	p.Y.Max = maxVel
 
-	err := plotutil.AddScatters(p, "VN Velocity Data", hplot.ZipXY(*times, *vels))
-	if err != nil {
-		return nil, fmt.Errorf("could not create scatters: %+v", err)
+	pts := make(plotter.XYs, len(*times))
+	for i := range *times {
+		pts[i].X = (*times)[i]
+		pts[i].Y = (*vels)[i]
 	}
+
+	line, err := plotter.NewLine(pts)
+	if err != nil {
+		return nil, fmt.Errorf("could not create line plot: %+v", err)
+	}
+	p.Add(line)
 
 	writer, err := p.WriterTo(25*vg.Centimeter, 25*vg.Centimeter, "png")
 	if err != nil {
@@ -52,4 +54,16 @@ func GenerateVelPlot(times, vels *[]float64, minTime, maxTime, minVel, maxVel fl
 	}
 
 	return &writer, nil
+
+	// err := plotutil.AddLines(p, "VN Velocity Data", hplot.ZipXY(*times, *vels))
+	// if err != nil {
+	// 	return nil, fmt.Errorf("could not create line graph: %+v", err)
+	// }
+
+	// writer, err := p.WriterTo(25*vg.Centimeter, 25*vg.Centimeter, "png")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("could not get plot writer: %+v", err)
+	// }
+
+	// return &writer, nil
 }
