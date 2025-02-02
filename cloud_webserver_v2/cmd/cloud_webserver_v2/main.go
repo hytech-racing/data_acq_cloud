@@ -19,7 +19,9 @@ import (
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
-)
+
+	ht_proto_sync "github.com/hytech-racing/cloud-webserver-v2/internal/ht_proto_sync"
+)	
 
 /* TODO:
    - [x] Dynamically decode protobuf messages
@@ -86,6 +88,10 @@ func main() {
 	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket)
 	log.Println("Started S3 session...")
 
+	// Adding HT_Proto Listener...
+	htproto_listener := ht_proto_sync.Initializer()
+
+
 	// Create file fileProcessor with 10GB limit
 	fileProcessor, err := background.NewFileProcessor(
 		"./uploads",
@@ -148,6 +154,7 @@ func main() {
 
 		log.Println("Waiting for file processor to finish...")
 		fileProcessor.Stop()
+		htproto_listener.Stop()
 
 		// Gracefully disconnect from MongoDB
 		mongoShutdownCtx, mongoShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
