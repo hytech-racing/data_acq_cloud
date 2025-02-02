@@ -35,7 +35,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 
 	// Extracting HDF5 file location from results
 	var hdf5Location string
-	if outer, ok := mcapResults["matlab_writer"]; ok {
+	if outer, ok := mcapResults[messaging.MATLAB]; ok {
 		if data, ok := outer.ResultData["file_path"]; ok {
 			hdf5Location = data.(string)
 		}
@@ -43,7 +43,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 
 	// Extracting VN Lat-Lon file location from results
 	var vnLatLonPlotWriter *io.WriterTo
-	if outer, ok := mcapResults["vn_plot"]; ok {
+	if outer, ok := mcapResults[messaging.LATLON]; ok {
 		if data, ok := outer.ResultData["writer_to"]; ok {
 			vnLatLonPlotWriter = data.(*io.WriterTo)
 		}
@@ -51,7 +51,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 
 	// Extracting VN Vel file location from results
 	var vnTimeVelPlotWriter *io.WriterTo
-	if outer, ok := mcapResults["vn_velo_plot"]; ok {
+	if outer, ok := mcapResults[messaging.VELOCITY]; ok {
 		if data, ok := outer.ResultData["writer_to"]; ok {
 			vnTimeVelPlotWriter = data.(*io.WriterTo)
 		}
@@ -97,7 +97,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
 
 	// Uploading Time-Vel file to S3
-	vnTimeVelPlotName := fmt.Sprintf("%v_Vel.png", genericFileName)
+	vnTimeVelPlotName := fmt.Sprintf("%v_Velocity.png", genericFileName)
 	vnTimeVelPlotFileObjectPath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnTimeVelPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath)
 	if err != nil {
@@ -197,9 +197,9 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 
 	// This is all the subsribers relavent to handling an MCAP mcapFile. You can attach more workers here if need be.
 	subscriberMapping := make(map[string]messaging.SubscriberFunc)
-	subscriberMapping["vn_plot"] = messaging.PlotLatLon
-	subscriberMapping["vn_velo_plot"] = messaging.PlotTimeVel
-	subscriberMapping["matlab_writer"] = messaging.CreateRawMatlabFile
+	subscriberMapping[messaging.LATLON] = messaging.PlotLatLon
+	subscriberMapping[messaging.VELOCITY] = messaging.PlotTimeVelocity
+	subscriberMapping[messaging.MATLAB] = messaging.CreateRawMatlabFile
 
 	publisher := messaging.NewPublisher(true)
 	subscriber_names := make([]string, len(subscriberMapping))
@@ -266,11 +266,11 @@ func (p *PostProcessMCAPUploadJob) routeMessagesToSubscribers(ctx context.Contex
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, *allNames...)
 	case "hytech_msgs.VNData":
-		subscriberNames = append(subscriberNames, "vn_plot", "matlab_writer")
+		subscriberNames = append(subscriberNames, messaging.LATLON, messaging.MATLAB)
 	case "hytech_msgs.VehicleData":
-		subscriberNames = append(subscriberNames, "vn_velo_plot", "matlab_writer")
+		subscriberNames = append(subscriberNames, messaging.VELOCITY, messaging.MATLAB)
 	default:
-		subscriberNames = append(subscriberNames, "matlab_writer")
+		subscriberNames = append(subscriberNames, messaging.MATLAB)
 	}
 
 	publisher.Publish(ctx, decodedMessage, subscriberNames)

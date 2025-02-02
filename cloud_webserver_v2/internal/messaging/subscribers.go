@@ -25,6 +25,12 @@ const (
 	INIT = "INIT_MESSAGE"
 )
 
+const (
+	LATLON   = "vn_plot"
+	VELOCITY = "velocity_plot"
+	MATLAB   = "matlab_writer"
+)
+
 // Subscriber function type serves as a common header for all subscribers to a publisher
 type SubscriberFunc func(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult)
 
@@ -123,7 +129,7 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 	}
 }
 
-func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+func PlotTimeVelocity(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	times := make([]float64, 0)
 	vels := make([]float64, 0)
 	first := true
@@ -174,9 +180,6 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 			continue
 		}
 
-		// log.Printf("Log Time Reading: %v\n", logTime)
-		// log.Printf("RPM Reading: %v\n", rpm)
-
 		if first {
 			initialTime = logTime
 			first = false
@@ -184,9 +187,6 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 
 		vel := subscribers.RPMToLinearVelocity(rpm)
 		time := subscribers.LogTimeToTime(logTime, initialTime)
-
-		// log.Printf("Time Calc: %v\n", time)
-		// log.Printf("Vel Calc: %v\n\n\n", vel)
 
 		minVel = math.Min(minVel, vel)
 		maxVel = math.Max(maxVel, vel)
@@ -197,7 +197,7 @@ func PlotTimeVel(id int, subscriberName string, ch <-chan SubscribedMessage, res
 		times = append(times, time)
 	}
 
-	writerTo, err := subscribers.GenerateVelPlot(&times, &vels, minTime, maxTime, minVel, maxVel)
+	writerTo, err := subscribers.GenerateVelocityPlot(&times, &vels, minTime, maxTime, minVel, maxVel)
 	if err != nil {
 		log.Println(err)
 		return

@@ -11,20 +11,20 @@ import (
 
 const PI = 3.14159265359
 
-const GEARBOX_RATIO = 11.86
-const WHEEL_DIAMETER = 0.4064 // meters
-const RPM_TO_METERS_PER_SECOND = WHEEL_DIAMETER * PI / GEARBOX_RATIO / 60.0
-const RPM_TO_KILOMETERS_PER_HOUR = RPM_TO_METERS_PER_SECOND * 3600.0 / 1000.0
+const GearboxRatio = 11.86
+const WheelDiameter = 0.4064 // meters
+const RpmToMetersPerSecond = WheelDiameter * PI / GearboxRatio / 60.0
+const RpmToKilometersPerHour = RpmToMetersPerSecond * 3600.0 / 1000.0
 
 func RPMToLinearVelocity(rpm float32) float64 {
-	return float64(rpm) * RPM_TO_METERS_PER_SECOND
+	return float64(rpm) * RpmToMetersPerSecond
 }
 
 func LogTimeToTime(logTime uint64, initialTime uint64) float64 {
 	return float64(logTime-initialTime) / 1e9
 }
 
-func GenerateVelPlot(times, vels *[]float64, minTime, maxTime, minVel, maxVel float64) (*io.WriterTo, error) {
+func GenerateVelocityPlot(times, vels *[]float64, minTime, maxTime, minVel, maxVel float64) (*io.WriterTo, error) {
 	p := plot.New()
 	p.Title.Text = "VN Velocity Data"
 	p.X.Label.Text = "time (s)"
@@ -54,16 +54,4 @@ func GenerateVelPlot(times, vels *[]float64, minTime, maxTime, minVel, maxVel fl
 	}
 
 	return &writer, nil
-
-	// err := plotutil.AddLines(p, "VN Velocity Data", hplot.ZipXY(*times, *vels))
-	// if err != nil {
-	// 	return nil, fmt.Errorf("could not create line graph: %+v", err)
-	// }
-
-	// writer, err := p.WriterTo(25*vg.Centimeter, 25*vg.Centimeter, "png")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("could not get plot writer: %+v", err)
-	// }
-
-	// return &writer, nil
 }
