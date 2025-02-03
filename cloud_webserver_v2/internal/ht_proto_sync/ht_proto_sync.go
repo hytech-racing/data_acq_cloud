@@ -101,12 +101,14 @@ func (s *SyncService) Stop() {
 	close(s.stopChannel)
 }
 
+// Creates a SyncService and STARTS it -- move this code to main?
 func Initializer() (*SyncService){	
 	ts := oauth2.StaticTokenSource(
         &oauth2.Token{AccessToken: token},
     )
     tc := oauth2.NewClient(context.Background(), ts)
 
+	// one client is for github, other is for getrelease
 	client := github.NewClient(tc)
 	releaseClient := getrelease.NewGithubClient(nil)
 
