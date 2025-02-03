@@ -5,7 +5,6 @@ import (
 	"time"
 	"log"
 	"sync"
-	"fmt"
 
 
 	"github.com/aesteri/go-getrelease"
@@ -21,22 +20,21 @@ type SyncService struct {
 }
 
 const (
-    owner   = "" // GitHub username or organization
-    repo    = "" // Repository name
-    token   = "" // GitHub Personal Access Token
-    branch  = "" // Branch to pull commits from
+    owner   = "hytech_racing" // GitHub username or organization
+    repo    = "HT_proto" // Repository name
+    token   = "" // GitHub Personal Access Token <--secrets
+    branch  = "master" // Branch to pull commits from
 )
 
 // Retrieves chosen asset from Llatest release
 // https://github.com/dhillondeep/go-getrelease?tab=readme-ov-file
 func (s *SyncService) retrieveData(releaseClient *getrelease.GithubClient, retries *int) {
-	time.Sleep(100 * time.Millisecond)
 	log.Println("Downloading...")
-
 	regexPattern := `^\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}\.html$`
 
 	// Get the html file from the latest release in HT_proto
-	if assetName, err := getrelease.GetLatestAsset(releaseClient, "./download", regexPattern, owner, repo, func(config *getrelease.Configuration) error {
+	// Downloads the file in external mount
+	if assetName, err := getrelease.GetLatestAsset(releaseClient, "/app/files", regexPattern, owner, repo, func(config *getrelease.Configuration) error {
 		return nil
 	}); err != nil {
 		// Edge case if html is not in the assets yet (GH Actions takes some time to process -- for the html files to process)
@@ -53,10 +51,7 @@ func (s *SyncService) retrieveData(releaseClient *getrelease.GithubClient, retri
 		}
 	} else {
 		log.Println(assetName)
-
-		// TODO: downloading files into appropriate location 
 	}
-
 }
 
 // HT_Proto Listener
@@ -82,11 +77,10 @@ func (s *SyncService) ht_protoListen(client *github.Client, releaseClient *getre
 		
 		s.storedHash = latestHash
 		retries := 5
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(2 * time.Minute)
 		s.retrieveData(releaseClient, &retries)
 	}
 	s.mutt.Unlock()
-	time.Sleep(100 * time.Millisecond)
 }
 
 // Starts Listening...

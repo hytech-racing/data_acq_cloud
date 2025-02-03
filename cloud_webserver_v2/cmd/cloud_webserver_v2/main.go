@@ -141,6 +141,7 @@ func main() {
 
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
+	handler.NewDocHandler(router)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
