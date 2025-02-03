@@ -49,15 +49,12 @@ func (s *SyncService) retrieveData(releaseClient *getrelease.GithubClient, retri
 			log.Println("Stopping listener ... Encountered Error: ", err);
 			s.Stop()
 		}
-	} else {
-		log.Println(assetName)
 	}
 }
 
 // HT_Proto Listener
 // Listens to see if any new commits have been made
 func (s *SyncService) ht_protoListen(client *github.Client, releaseClient *getrelease.GithubClient) { 
-	log.Println("Pulling Commits...")
 
 	//Comparing commit hashes
 	commits, _, err := client.Repositories.ListCommits(context.Background(), owner, repo, &github.CommitsListOptions{
