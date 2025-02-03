@@ -82,7 +82,7 @@ func (s *SyncService) ht_protoListen(client *github.Client, releaseClient *getre
 
 // Starts Listening...
 func (s *SyncService) StartListening(client *github.Client, releaseClient *getrelease.GithubClient) {
-	ticker := time.NewTicker(1 * time.Minute) // Runs every 5 minutes
+	ticker := time.NewTicker(5 * time.Minute) // Runs every 5 minutes
 	defer ticker.Stop()
 
 	for {
