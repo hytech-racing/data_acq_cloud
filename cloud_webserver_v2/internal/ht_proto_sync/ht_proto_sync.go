@@ -29,7 +29,10 @@ func (s *SyncService) retrieveData(client *github.Client, latestHash string) err
 	// regexAnalyzer (regexp.Regexp) is a Regex object that can be used to match patterns against text
 	// Our target file is in the following format, regexPattern, which we want to download
 	regexPattern := `^\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}\.html$`
-	regexAnalyzer, _ := regexp.Compile(regexPattern)
+	regexAnalyzer, err := regexp.Compile(regexPattern)
+	if err != nil {
+		return err
+	}
 
 	// returns the latest release
 	release, _, err := client.Repositories.GetLatestRelease(
