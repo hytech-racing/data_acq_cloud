@@ -2,87 +2,98 @@ package ht_proto_sync
 
 import (
 	"context"
-	"time"
+	"io"
 	"log"
-	"sync"
+	"net/http"
+	"os"
+	"regexp"
+	"time"
 
-
-	"github.com/aesteri/go-getrelease"
-	"golang.org/x/oauth2"
 	"github.com/google/go-github/v68/github"
 )
 
 // SyncService --> syncs files with github
 type SyncService struct {
-    storedHash string
-	mutt sync.Mutex
+	storedHash  string
 	stopChannel chan bool
 }
 
-const (
-    owner   = "hytech_racing" // GitHub username or organization
-    repo    = "HT_proto" // Repository name
-    token   = "" // GitHub Personal Access Token <--secrets
-    branch  = "master" // Branch to pull commits from
+var (
+	owner  = "aesteri"        // GitHub username or organization
+	repo   = "testing_protoc" // Repository name
+	branch = "main"           // Branch to pull commits from
 )
 
-// Retrieves chosen asset from Llatest release
-// https://github.com/dhillondeep/go-getrelease?tab=readme-ov-file
-func (s *SyncService) retrieveData(releaseClient *getrelease.GithubClient, retries *int) {
-	log.Println("Downloading...")
+// Retrieves chosen asset from latest release
+func (s *SyncService) retrieveData(client *github.Client, latestHash string) error {
+	// regexAnalyzer (*regexp.Regexp) is a Regex object that can be used to match patterns against text
+	// Our target file is in the following format, regexPattern, which we want to download
 	regexPattern := `^\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}\.html$`
+	regexAnalyzer, _ := regexp.Compile(regexPattern)
 
-	// Get the html file from the latest release in HT_proto
-	// Downloads the file in external mount
-	if assetName, err := getrelease.GetLatestAsset(releaseClient, "/app/files", regexPattern, owner, repo, func(config *getrelease.Configuration) error {
-		return nil
-	}); err != nil {
-		// Edge case if html is not in the assets yet (GH Actions takes some time to process -- for the html files to process)
-		if *retries > 0 {
+	// returns the latest release
+	release, _, err := client.Repositories.GetLatestRelease(
+		context.Background(), owner, repo)
+	if err != nil {
+		return err
+	}
 
-			log.Println(err, "trying again...");
-			time.Sleep(2 * time.Minute)
-			*retries--
-			s.retrieveData(releaseClient, retries)
+	for _, asset := range release.Assets {
+		// Reports whether or not the asset.Name is a match
+		if regexAnalyzer.Match([]byte(*asset.Name)) {
+			// Create File
+			out, err := os.Create("/app/files/" + *asset.Name)
+			if err != nil {
+				return err
+			}
+			defer out.Close()
 
-		} else {
-			log.Println("Stopping listener ... Encountered Error: ", err);
-			s.Stop()
+			resp, err := http.Get(*asset.BrowserDownloadURL)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			// Write contents onto the created file
+			_, err = io.Copy(out, resp.Body)
+			if err != nil {
+				return err
+			}
+
+			// Only updates stored Hash if we successfully retrieve target file
+			// --> checks edge case if the target file is not in release yet
+			s.storedHash = latestHash
 		}
 	}
+	return nil
 }
 
 // HT_Proto Listener
 // Listens to see if any new commits have been made
-func (s *SyncService) ht_protoListen(client *github.Client, releaseClient *getrelease.GithubClient) { 
-
-	//Comparing commit hashes
+func (s *SyncService) ht_protoListen(client *github.Client) error {
+	// Comparing commit hashes
 	commits, _, err := client.Repositories.ListCommits(context.Background(), owner, repo, &github.CommitsListOptions{
-        SHA: branch,
-        ListOptions: github.ListOptions{PerPage: 1},
-    })
-    if err != nil {
-		log.Fatal(err)
-    }
+		SHA:         branch,
+		ListOptions: github.ListOptions{PerPage: 1},
+	})
+
+	if err != nil {
+		return err
+	}
 	latestCommit := commits[0]
 	latestHash := *latestCommit.SHA
 
-	// Make sure only one goroutine modifies stored hash at a time
-	s.mutt.Lock()
 	if latestHash != s.storedHash {
-		log.Println("Hash is not equal!")
-		
-		s.storedHash = latestHash
-		retries := 5
-		time.Sleep(2 * time.Minute)
-		s.retrieveData(releaseClient, &retries)
+		s.retrieveData(client, latestHash)
 	}
-	s.mutt.Unlock()
+	return nil
 }
 
 // Starts Listening...
-func (s *SyncService) StartListening(client *github.Client, releaseClient *getrelease.GithubClient) {
-	ticker := time.NewTicker(5 * time.Minute) // Runs every 5 minutes
+func (s *SyncService) StartListening(client *github.Client) {
+	// Tickers use channels to receive values periodically
+	// In this case, every 5 minutes
+	ticker := time.NewTicker(1 * time.Minute) // Runs every 5 minutes CHANGEBACK
 	defer ticker.Stop()
 
 	for {
@@ -91,8 +102,7 @@ func (s *SyncService) StartListening(client *github.Client, releaseClient *getre
 			log.Println("Stopping listener...")
 			return
 		case <-ticker.C: // Wait for next tick
-			s.ht_protoListen(client, releaseClient)
-			time.Sleep(100 * time.Millisecond)
+			s.ht_protoListen(client)
 		}
 	}
 }
@@ -101,26 +111,20 @@ func (s *SyncService) Stop() {
 	close(s.stopChannel)
 }
 
-// Creates a SyncService and STARTS it -- move this code to main?
-func Initializer() (*SyncService){	
-	ts := oauth2.StaticTokenSource(
-        &oauth2.Token{AccessToken: token},
-    )
-    tc := oauth2.NewClient(context.Background(), ts)
-
-	// one client is for github, other is for getrelease
-	client := github.NewClient(tc)
-	releaseClient := getrelease.NewGithubClient(nil)
+// Creates a SyncService and STARTS it
+func Initializer() (*SyncService, error) {
+	// Initialize client for github
+	client := github.NewClient(nil)
 
 	// Start listening..
-	s := &SyncService{}
-
-	s.stopChannel = make(chan bool)
-	s.storedHash = "default"
+	s := &SyncService{
+		stopChannel: make(chan bool),
+		storedHash:  "",
+	}
 
 	log.Println("Starting.. Listener...")
-	
-	go s.StartListening(client, releaseClient)
 
-	return s
+	go s.StartListening(client)
+
+	return s, nil
 }

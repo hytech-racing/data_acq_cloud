@@ -89,8 +89,10 @@ func main() {
 	log.Println("Started S3 session...")
 
 	// Adding HT_Proto Listener...
-	htproto_listener := ht_proto_sync.Initializer()
-
+	htproto_listener, err := ht_proto_sync.Initializer()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Create file fileProcessor with 10GB limit
 	fileProcessor, err := background.NewFileProcessor(
@@ -141,7 +143,7 @@ func main() {
 
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
-	handler.NewDocHandler(router)
+	handler.NewDocumentationHandler(router)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
