@@ -21,7 +21,7 @@ import (
 	"github.com/joho/godotenv"
 
 	ht_proto_sync "github.com/hytech-racing/cloud-webserver-v2/internal/ht_proto_sync"
-)	
+)
 
 /* TODO:
    - [x] Dynamically decode protobuf messages
@@ -89,10 +89,7 @@ func main() {
 	log.Println("Started S3 session...")
 
 	// Adding HT_Proto Listener...
-	htproto_listener, err := ht_proto_sync.Initializer()
-	if err != nil {
-		log.Fatal(err)
-	}
+	htproto_listener := ht_proto_sync.Initializer()
 
 	// Create file fileProcessor with 10GB limit
 	fileProcessor, err := background.NewFileProcessor(

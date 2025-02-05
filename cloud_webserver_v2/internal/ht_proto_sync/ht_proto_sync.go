@@ -19,14 +19,14 @@ type SyncService struct {
 }
 
 var (
-	owner  = "aesteri"        // GitHub username or organization
-	repo   = "testing_protoc" // Repository name
-	branch = "main"           // Branch to pull commits from
+	owner  = "hytech-racing" // GitHub username or organization
+	repo   = "HT_proto"      // Repository name
+	branch = "master"        // Branch to pull commits from
 )
 
 // Retrieves chosen asset from latest release
 func (s *SyncService) retrieveData(client *github.Client, latestHash string) error {
-	// regexAnalyzer (*regexp.Regexp) is a Regex object that can be used to match patterns against text
+	// regexAnalyzer (regexp.Regexp) is a Regex object that can be used to match patterns against text
 	// Our target file is in the following format, regexPattern, which we want to download
 	regexPattern := `^\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}\.html$`
 	regexAnalyzer, _ := regexp.Compile(regexPattern)
@@ -76,15 +76,19 @@ func (s *SyncService) ht_protoListen(client *github.Client) error {
 		SHA:         branch,
 		ListOptions: github.ListOptions{PerPage: 1},
 	})
-
 	if err != nil {
 		return err
 	}
+
 	latestCommit := commits[0]
 	latestHash := *latestCommit.SHA
 
 	if latestHash != s.storedHash {
-		s.retrieveData(client, latestHash)
+		err := s.retrieveData(client, latestHash)
+
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -93,7 +97,7 @@ func (s *SyncService) ht_protoListen(client *github.Client) error {
 func (s *SyncService) StartListening(client *github.Client) {
 	// Tickers use channels to receive values periodically
 	// In this case, every 5 minutes
-	ticker := time.NewTicker(1 * time.Minute) // Runs every 5 minutes CHANGEBACK
+	ticker := time.NewTicker(5 * time.Minute) // Runs every 5 minutes 
 	defer ticker.Stop()
 
 	for {
@@ -102,7 +106,11 @@ func (s *SyncService) StartListening(client *github.Client) {
 			log.Println("Stopping listener...")
 			return
 		case <-ticker.C: // Wait for next tick
-			s.ht_protoListen(client)
+			err := s.ht_protoListen(client)
+			if err != nil {
+				log.Printf("Error while listening: %v", err)
+			}
+			return
 		}
 	}
 }
@@ -112,7 +120,7 @@ func (s *SyncService) Stop() {
 }
 
 // Creates a SyncService and STARTS it
-func Initializer() (*SyncService, error) {
+func Initializer() *SyncService {
 	// Initialize client for github
 	client := github.NewClient(nil)
 
@@ -126,5 +134,5 @@ func Initializer() (*SyncService, error) {
 
 	go s.StartListening(client)
 
-	return s, nil
+	return s
 }
