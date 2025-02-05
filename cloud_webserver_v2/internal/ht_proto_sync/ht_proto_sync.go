@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/google/go-github/v68/github"
+	"github.com/google/go-github/github"
 )
 
 // SyncService --> syncs files with github
