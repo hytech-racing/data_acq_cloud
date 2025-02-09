@@ -61,7 +61,6 @@ func (*documentationHandler) GetVersionFromName(w http.ResponseWriter, r *http.R
 	response := make(map[string]interface{})
 
 	// Returns html as string
-	response["message"] = "returned specified doc"
 	response["HTML"] = string(htmlContent)
 
 	render.JSON(w, r, response)
