@@ -2,6 +2,8 @@ package logging
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -13,19 +15,21 @@ type Logger struct {
 	logs     []string
 	logIndex int
 	maxLogs  int
+	writer   io.Writer
 }
 
 var instance *Logger
 var once sync.Once
+var originalStdout *os.File
 
-// Intializes static logger (records last 10 logs)
+// Intializes static logger (records last 10 logs by default)
 func InitLogger() {
 	once.Do(func() {
 		instance = &Logger{
 			logs:    make([]string, 10),
 			maxLogs: 10,
 		}
-		// redirectLogsToLogger()
+		instance.redirectStdoutToLogger()
 	})
 }
 
@@ -37,22 +41,43 @@ func GetLogger() *Logger {
 	return instance
 }
 
+// Checks to see if the message is already formatted according to: "[YYYY-MM-DD HH:MM:SS]"
+func isFormatted(msg string) bool {
+	return len(msg) > 21 && msg[0] == '[' && msg[20] == ']'
+}
+
+// Stores the actual log in the array
+func (l *Logger) storeLog(message string, level string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+
+	// If the message isn't formatter already, then format it according to our layout
+	if !isFormatted(message) {
+		message = fmt.Sprintf("[%s] [%s] %s", timestamp, level, message)
+	}
+
+	l.logs[l.logIndex] = message
+	l.logIndex = (l.logIndex + 1) % l.maxLogs
+}
+
 // Log something to terminal in the 2006-01-02 15:04:05 format
 func (l *Logger) Log(level, message string) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	formattedMessage := fmt.Sprintf("[%s] [%s] %s", timestamp, level, message)
 	fmt.Println(formattedMessage)
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.logs[l.logIndex] = formattedMessage
-	l.logIndex = (l.logIndex + 1) % l.maxLogs
+	l.storeLog(formattedMessage, level)
 }
 
+// LogF something to terminal in the 2006-01-02 15:04:05 format
 func (l *Logger) LogF(level, format string, a ...interface{}) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	formattedMessage := fmt.Sprintf(format, a...);
 	fmt.Printf("[%s] [%s] %s\n", timestamp, level, formattedMessage);
+
+	l.storeLog(formattedMessage, level)
 }
 
 func (l * Logger) LogStdout(message string) {
@@ -116,36 +141,48 @@ func (l *Logger) GetRecentLogs() []string {
 	defer l.mu.Unlock()
 
 	var recentLogs []string
+	
 	for i := 0; i < l.maxLogs; i++ {
-		index := (l.logIndex + i) % l.maxLogs
+		index := (l.logIndex - 1 - i + l.maxLogs) % l.maxLogs
+
 		if l.logs[index] != "" {
 			recentLogs = append(recentLogs, l.logs[index])
 		}
 	}
+
+	for i, j := 0, len(recentLogs)-1; i < j; i, j = i+1, j-1 {
+		recentLogs[i], recentLogs[j] = recentLogs[j], recentLogs[i]
+	}
+
 	return recentLogs
 }
 
-// This function allows the logger to store all logs from stdout
-// func redirectLogsToLogger() {
-// 	reader, writer, err := os.Pipe()
-// 	if err != nil {
-// 		fmt.Printf("Cannot redirect log from pipe: %v\n", err)
-// 		return
-// 	}
+// Redirect other stdout logs to the crash file
+func (l *Logger) redirectStdoutToLogger() {
+	originalStdout = os.Stdout
 
-// 	os.Stdout = writer
-// 	os.Stderr = writer
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		fmt.Printf("Failed to redirect stdout: %v\n", err)
+		return
+	}
+	l.writer = writer
 
-// 	go func() {
-// 		buffer := make([]byte, 1024)
-// 		for {
-// 			n, err := reader.Read(buffer)
-// 			if n > 0 {
-// 				GetLogger().LogStdout(string(buffer[:n]))
-// 			}
-// 			if err == io.EOF {
-// 				break
-// 			}
-// 		}
-// 	}()
-// }
+	// Since piping the stdout doesn't print it out into the terminal, we need to manually add it
+	logWriter := io.MultiWriter(originalStdout, writer)
+	log.SetFlags(0)
+	log.SetOutput(logWriter) 
+	log.SetPrefix(fmt.Sprintf("[%s] ", time.Now().Format("2006-01-02 15:04:05")))
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := reader.Read(buf)
+			if err != nil {
+				return
+			}
+			logMessage := string(buf[:n])
+			l.storeLog(logMessage, "OLDLOGGER")
+		}
+	}()
+}
