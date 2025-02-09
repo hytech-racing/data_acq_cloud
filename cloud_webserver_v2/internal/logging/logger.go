@@ -2,7 +2,6 @@ package logging
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -26,7 +25,7 @@ func InitLogger() {
 			logs:    make([]string, 10),
 			maxLogs: 10,
 		}
-		redirectLogsToLogger()
+		// redirectLogsToLogger()
 	})
 }
 
@@ -50,11 +49,10 @@ func (l *Logger) Log(level, message string) {
 	l.logIndex = (l.logIndex + 1) % l.maxLogs
 }
 
-func (l *Logger) LogF(format string, a ...any) {
+func (l *Logger) LogF(level, format string, a ...interface{}) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	formattedMessage := fmt.Sprintf("[%s] [%s] %s", timestamp, level, message)
-	fmt.Printf(format, a);
-
+	formattedMessage := fmt.Sprintf(format, a...);
+	fmt.Printf("[%s] [%s] %s\n", timestamp, level, formattedMessage);
 }
 
 func (l * Logger) LogStdout(message string) {
@@ -128,26 +126,26 @@ func (l *Logger) GetRecentLogs() []string {
 }
 
 // This function allows the logger to store all logs from stdout
-func redirectLogsToLogger() {
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		fmt.Printf("Cannot redirect log from pipe: %v\n", err)
-		return
-	}
+// func redirectLogsToLogger() {
+// 	reader, writer, err := os.Pipe()
+// 	if err != nil {
+// 		fmt.Printf("Cannot redirect log from pipe: %v\n", err)
+// 		return
+// 	}
 
-	os.Stdout = writer
-	os.Stderr = writer
+// 	os.Stdout = writer
+// 	os.Stderr = writer
 
-	go func() {
-		buffer := make([]byte, 1024)
-		for {
-			n, err := reader.Read(buffer)
-			if n > 0 {
-				GetLogger().LogStdout(string(buffer[:n]))
-			}
-			if err == io.EOF {
-				break
-			}
-		}
-	}()
-}
+// 	go func() {
+// 		buffer := make([]byte, 1024)
+// 		for {
+// 			n, err := reader.Read(buffer)
+// 			if n > 0 {
+// 				GetLogger().LogStdout(string(buffer[:n]))
+// 			}
+// 			if err == io.EOF {
+// 				break
+// 			}
+// 		}
+// 	}()
+// }
