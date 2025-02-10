@@ -3,17 +3,16 @@ package subscribers
 import (
 	"fmt"
 	"io"
+	"math"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
 )
 
-const PI = 3.14159265359
-
 const GearboxRatio = 11.86
 const WheelDiameter = 0.4064 // meters
-const RpmToMetersPerSecond = WheelDiameter * PI / GearboxRatio / 60.0
+const RpmToMetersPerSecond = WheelDiameter * math.Pi / GearboxRatio / 60.0
 const RpmToKilometersPerHour = RpmToMetersPerSecond * 3600.0 / 1000.0
 
 func RPMToLinearVelocity(rpm float32) float64 {
