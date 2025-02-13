@@ -28,7 +28,7 @@ func NewDocumentationHandler(r *chi.Mux, s3Repository *s3.S3Repository) {
 }
 
 // Get all version names
-func (*documentationHandler) GetVersions(w http.ResponseWriter, r *http.Request) *HandlerError {
+func (d *documentationHandler) GetVersions(w http.ResponseWriter, r *http.Request) *HandlerError {
 	versions := []string{}
 
 	// Returns all entries in external directory
