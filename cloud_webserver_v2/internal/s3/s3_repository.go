@@ -78,7 +78,7 @@ func (s *S3Repository) GetSignedUrl(ctx context.Context, bucket string, objectPa
 	if err != nil {
 		log.Fatalf("Couldn't get a presigned request to get %v:%v: %v", bucket, objectPath, err)
 	}
-
+	
 	return request.URL
 }
 

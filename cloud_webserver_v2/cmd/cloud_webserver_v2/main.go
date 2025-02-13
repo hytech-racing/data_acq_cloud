@@ -140,7 +140,7 @@ func main() {
 
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
-	handler.NewDocumentationHandler(router)
+	handler.NewDocumentationHandler(router, s3Repository)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
