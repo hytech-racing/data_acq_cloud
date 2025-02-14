@@ -23,27 +23,42 @@ func NewDocumentationHandler(r *chi.Mux, s3Repository *s3.S3Repository) {
 
 	r.Route("/docs", func(r chi.Router) {
 		r.Get("/versions", HandlerFunc(handler.GetVersions).ServeHTTP)
-		r.Get("/versions/{version_name}", HandlerFunc(handler.GetVersionFromName).ServeHTTP)
+		r.Get("/versions/{version_name}-{repo}", HandlerFunc(handler.GetVersionFromName).ServeHTTP)
 	})
 }
 
 // Get all version names
 func (d *documentationHandler) GetVersions(w http.ResponseWriter, r *http.Request) *HandlerError {
-	versions := []string{}
+	versionsCAN := []string{}
+	versionsProto := []string{}
 
 	// Returns all entries in external directory
-	files, err := os.ReadDir("/app/files")
+	filePathCAN := filepath.Join("/app/files/", "HT_CAN")
+
+	canFiles, err := os.ReadDir(filePathCAN)
 	if err != nil {
 		return NewHandlerError("failed to read external directory [~/htmls]: "+err.Error(), http.StatusInternalServerError)
 	}
 
-	for _, file := range files {
-		versions = append(versions, file.Name())
+	for _, canFile := range canFiles {
+		versionsCAN = append(versionsCAN, canFile.Name())
+	}
+
+	filePathProto := filepath.Join("/app/files/", "HT_proto")
+
+	protoFiles, err := os.ReadDir(filePathProto)
+	if err != nil {
+		return NewHandlerError("failed to read external directory [~/htmls]: "+err.Error(), http.StatusInternalServerError)
+	}
+
+	for _, protoFile := range protoFiles {
+		versionsCAN = append(versionsCAN, protoFile.Name())
 	}
 
 	response := make(map[string]interface{})
 	response["message"] = "returned all doc versions"
-	response["data"] = versions
+	response["HT_CAN"] = versionsCAN
+	response["HT_Proto"] = versionsProto
 
 	render.JSON(w, r, response)
 	return nil
@@ -54,11 +69,13 @@ func (d *documentationHandler) GetVersionFromName(w http.ResponseWriter, r *http
 	ctx := r.Context()
 
 	versionName := chi.URLParam(r, "version_name")
+	repo := chi.URLParam(r, "repo")
+
 	if versionName == "" {
 		return NewHandlerError("invalid request, must pass in version name", http.StatusBadRequest)
 	}
 
-	filePath := filepath.Join("/app/files/", versionName)
+	filePath := filepath.Join("/app/files/", repo, versionName)
 
 	// Read specified file content
 	htmlContent, err := os.ReadFile(filePath)
