@@ -19,12 +19,3 @@ services:
         depends_on:
             - mongo
         restart: unless-stopped
-
-    mongo:
-        image: mongo:latest
-        container_name: mongo
-        environment:
-            MONGO_INITDB_ROOT_USERNAME: username
-            MONGO_INITDB_ROOT_PASSWORD: password
-        ports:
-            - "27017:27017"
