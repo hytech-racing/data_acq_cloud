@@ -83,6 +83,20 @@ func (d *documentationHandler) GetVersionFromName(w http.ResponseWriter, r *http
 		response["HTML"] = string(htmlContent)
 
 		render.JSON(w, r, response)
+
+		// Create Filepath to put the file into the external mount to prevent future error *(Pulling from s3 if not in external mount)
+		out, err := os.Create(filePath)
+		if err != nil {
+			return NewHandlerError("Error in creating new file", http.StatusBadRequest)
+		}
+		defer out.Close()
+
+		// Write contents onto the created file to prevent future error *(Pulling from s3 if not in external mount)
+		_, err = io.Copy(out, resp.Body)
+		if err != nil {
+			return NewHandlerError("Error in writing html content to file", http.StatusBadRequest)
+		}
+
 		return nil
 	}
 
