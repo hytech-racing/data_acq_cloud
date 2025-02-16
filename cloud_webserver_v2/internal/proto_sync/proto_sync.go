@@ -93,10 +93,10 @@ func (s *SyncService) retrieveData(client *github.Client, latestHash string, ctx
 	return nil
 }
 
-// HT_Proto Listener
+// Repo Listener
 // Listens to see if any new commits have been made
 func (s *SyncService) protoListen(client *github.Client, ctx context.Context, repo string, branch string) error {
-	// Listen to HT_proto
+	// Listen to repo
 	// Comparing commit hashes
 	commits, _, err := client.Repositories.ListCommits(context.Background(), owner, repo, &github.CommitsListOptions{
 		SHA:         branch,
@@ -170,12 +170,12 @@ func Initializer(s3Repository *s3.S3Repository, ctx context.Context) *SyncServic
 	}
 
 	// Make directories (Doesn't matter if directory is already made)
-	err := os.MkdirAll("app/files/HT_CAN", 0755)
+	err := os.MkdirAll("/app/files/HT_CAN", 0755)
 	if err != nil {
 		log.Println("Error creating directories:", err)
 	}
-	
-	err = os.MkdirAll("app/files/HT_proto", 0755)
+
+	err = os.MkdirAll("/app/files/HT_proto", 0755)
 	if err != nil {
 		log.Println("Error creating directories:", err)
 	}
