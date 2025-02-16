@@ -23,7 +23,7 @@ func NewDocumentationHandler(r *chi.Mux, s3Repository *s3.S3Repository) {
 
 	r.Route("/docs", func(r chi.Router) {
 		r.Get("/versions", HandlerFunc(handler.GetVersions).ServeHTTP)
-		r.Get("/versions/{version_name}-{repo}", HandlerFunc(handler.GetVersionFromName).ServeHTTP)
+		r.Get("/versions/{version_name}/{repo}", HandlerFunc(handler.GetVersionFromName).ServeHTTP)
 	})
 }
 
@@ -52,7 +52,7 @@ func (d *documentationHandler) GetVersions(w http.ResponseWriter, r *http.Reques
 	}
 
 	for _, protoFile := range protoFiles {
-		versionsCAN = append(versionsCAN, protoFile.Name())
+		versionsProto = append(versionsProto, protoFile.Name())
 	}
 
 	response := make(map[string]interface{})

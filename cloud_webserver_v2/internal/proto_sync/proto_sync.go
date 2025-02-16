@@ -169,6 +169,17 @@ func Initializer(s3Repository *s3.S3Repository, ctx context.Context) *SyncServic
 		s3Repository:       s3Repository,
 	}
 
+	// Make directories (Doesn't matter if directory is already made)
+	err := os.MkdirAll("app/files/HT_CAN", 0755)
+	if err != nil {
+		log.Println("Error creating directories:", err)
+	}
+	
+	err = os.MkdirAll("app/files/HT_proto", 0755)
+	if err != nil {
+		log.Println("Error creating directories:", err)
+	}
+
 	log.Println("Starting.. Listener...")
 
 	go s.StartListening(client, ctx, "HT_CAN", "main")
