@@ -42,7 +42,7 @@ func main() {
 	println(buzz)
 
 	// Initialize Crash Logger Globally
-	logging.InitLogger(20)
+	logging.InitLogger(50)
 	customLogger := logging.GetLogger()
 	defer customLogger.RecoverAndLogPanic()
 
