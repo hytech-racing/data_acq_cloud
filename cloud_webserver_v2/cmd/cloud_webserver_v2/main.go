@@ -88,7 +88,7 @@ func main() {
 	log.Println("Started S3 session...")
 
 	// Adding HT_Proto Listener...
-	proto_listener := proto_sync.Initializer(s3Repository, ctx)
+	proto_listener := proto_sync.Initializer(ctx, s3Repository)
 
 	// Create file fileProcessor with 10GB limit
 	fileProcessor, err := background.NewFileProcessor(

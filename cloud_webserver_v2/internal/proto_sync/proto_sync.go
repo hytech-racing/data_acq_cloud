@@ -27,7 +27,7 @@ var (
 )
 
 // Retrieves chosen asset from latest release
-func (s *SyncService) retrieveData(client *github.Client, latestHash string, ctx context.Context, repo string) error {
+func (s *SyncService) retrieveData(ctx context.Context, client *github.Client, latestHash string, repo string) error {
 	// regexAnalyzer (regexp.Regexp) is a Regex object that can be used to match patterns against text
 	// Our target file is in the following format, regexPattern, which we want to download
 	regexPattern := `^\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}\.html$`
@@ -87,7 +87,7 @@ func (s *SyncService) retrieveData(client *github.Client, latestHash string, ctx
 			// --> checks edge case if the target file is not in release yet
 			if repo == "HT_CAN" {
 				s.storedHashHT_CAN = latestHash
-			} else {
+			} else if repo == "HT_proto" {
 				s.storedHashHT_proto = latestHash
 			}
 
@@ -98,7 +98,7 @@ func (s *SyncService) retrieveData(client *github.Client, latestHash string, ctx
 
 // Repo Listener
 // Listens to see if any new commits have been made
-func (s *SyncService) protoListen(client *github.Client, ctx context.Context, repo string, branch string) error {
+func (s *SyncService) protoListen(ctx context.Context, client *github.Client, repo string, branch string) error {
 	// Listen to repo
 	// Comparing commit hashes
 	commits, _, err := client.Repositories.ListCommits(context.Background(), owner, repo, &github.CommitsListOptions{
@@ -114,15 +114,15 @@ func (s *SyncService) protoListen(client *github.Client, ctx context.Context, re
 
 	if repo == "HT_CAN" {
 		if latestHash != s.storedHashHT_CAN {
-			err := s.retrieveData(client, latestHash, ctx, repo)
+			err := s.retrieveData(ctx, client, latestHash, repo)
 
 			if err != nil {
 				return err
 			}
 		}
-	} else {
+	} else if repo == "HT_proto" {
 		if latestHash != s.storedHashHT_proto {
-			err := s.retrieveData(client, latestHash, ctx, repo)
+			err := s.retrieveData(ctx, client, latestHash, repo)
 
 			if err != nil {
 				return err
@@ -133,8 +133,8 @@ func (s *SyncService) protoListen(client *github.Client, ctx context.Context, re
 	return nil
 }
 
-// Starts Listening...
-func (s *SyncService) StartListening(client *github.Client, ctx context.Context, repo string, branch string) {
+// Starts listening goroutines that take care of pulling from wanted repos
+func (s *SyncService) StartListening(ctx context.Context, client *github.Client, repo string, branch string) {
 	// Tickers use channels to receive values periodically
 	// In this case, every 5 minutes
 	ticker := time.NewTicker(5 * time.Minute) // Runs every 5 minutes
@@ -146,7 +146,7 @@ func (s *SyncService) StartListening(client *github.Client, ctx context.Context,
 			log.Println("Stopping listener...")
 			return
 		case <-ticker.C: // Wait for next tick
-			err := s.protoListen(client, ctx, repo, branch)
+			err := s.protoListen(ctx, client, repo, branch)
 			if err != nil {
 				log.Printf("Error while listening: %v", err)
 			}
@@ -160,7 +160,7 @@ func (s *SyncService) Stop() {
 }
 
 // Creates a SyncService and STARTS it
-func Initializer(s3Repository *s3.S3Repository, ctx context.Context) *SyncService {
+func Initializer(ctx context.Context, s3Repository *s3.S3Repository) *SyncService {
 	// Initialize client for github
 	client := github.NewClient(nil)
 
@@ -185,8 +185,8 @@ func Initializer(s3Repository *s3.S3Repository, ctx context.Context) *SyncServic
 
 	log.Println("Starting.. Listener...")
 
-	go s.StartListening(client, ctx, "HT_CAN", "main")
-	go s.StartListening(client, ctx, "HT_proto", "master")
+	go s.StartListening(ctx, client, "HT_CAN", "main")
+	go s.StartListening(ctx, client, "HT_proto", "master")
 
 	return s
 }
