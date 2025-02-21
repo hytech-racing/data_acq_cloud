@@ -2,7 +2,6 @@ package models
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
@@ -75,7 +74,6 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 	for key, files := range model.ContentFiles {
 		if len(files) > 0 {
 			fileResponses := getFileModelResponse(ctx, s3Repo, files)
-			log.Println(key)
 			modelOut.ContentFiles[key] = fileResponses
 		}
 	}
