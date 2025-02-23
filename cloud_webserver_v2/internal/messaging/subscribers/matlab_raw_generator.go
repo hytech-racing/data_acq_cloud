@@ -9,13 +9,16 @@ import (
 	"github.com/jhump/protoreflect/dynamic"
 )
 
+// This constructs a HDF5 file with a stream of messages it gets from a MCAP file.
+// It chunk writes to the HDF5 file in groups.
+// It does this by saving information into allSignalData and occasionally chunk writes all the data into the HDF5 file.
 type RawMatlabWriter struct {
-	allSignalData   map[string]map[string]interface{}
 	firstTime       *float64
-	failedMessages  [][2]interface{}
 	HDF5Writer      *utils.HDF5Writer
-	maxSignalLength int // Constantly updated so we know what the max len of a data slice is
+	allSignalData   map[string]map[string]interface{}
 	filePath        string
+	failedMessages  [][2]interface{}
+	maxSignalLength int // Constantly updated so we know what the max len of a data slice is
 }
 
 func CreateRawMatlabWriter(filePath, fileName string) (*RawMatlabWriter, error) {
@@ -36,6 +39,10 @@ func CreateRawMatlabWriter(filePath, fileName string) (*RawMatlabWriter, error) 
 	}, nil
 }
 
+// AddSignalValue adds the values of the decodedMessage to allSignalData.
+// If there exists a slice of signal values in allSignalData whose length is greater than
+// maxSignalLength, then AddSignalValue will chunk write all the data in allSignalData to the
+// currently open HDF5 file.
 func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) error {
 	if decodedMessage == nil || decodedMessage.Data == nil {
 		return nil
@@ -71,6 +78,7 @@ func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) e
 	return nil
 }
 
+// processSignalValue handles logic for whether to continue to dynamically decode the protobuf value or to directly add it to allSignalData
 func (w *RawMatlabWriter) processSignalValue(topic, signalName, signalPath string, value interface{}, logTime float64) {
 	dynamicMessage, ok := value.(*dynamic.Message)
 

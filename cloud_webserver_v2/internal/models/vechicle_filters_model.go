@@ -6,6 +6,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// VehicleRunModelFilters contians all the possible ways to filter and query
+// for a VehicleRun.
 type VehicleRunModelFilters struct {
 	ID         *primitive.ObjectID `bson:"id",omitempty`
 	BeforeDate *time.Time          `bson:"before_date,omitempty"`

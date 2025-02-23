@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,9 +15,17 @@ type McapUtils struct {
 	pbUtils *ProtobufUtils
 }
 
+// McapReader contains information relevant to reading and parsing an MCAP file
+type McapReader struct {
+	Reader     *mcap.Reader
+	Info       *mcap.Info
+	SchemaList []string
+}
+
+// DecodedMessage contains decoded data from a protobuf encoded message
 type DecodedMessage struct {
-	Topic   string
 	Data    map[string]interface{}
+	Topic   string
 	LogTime uint64
 }
 
@@ -26,30 +35,48 @@ func NewMcapUtils() *McapUtils {
 	}
 }
 
-func (m *McapUtils) NewReader(r io.Reader) (*mcap.Reader, error) {
+func (m *McapUtils) NewReader(r io.Reader) (*McapReader, error) {
 	reader, err := mcap.NewReader(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build reader: %w", err)
 	}
-	return reader, nil
+
+	info, err := reader.Info()
+	if err != nil {
+		return nil, fmt.Errorf("could not get info for mcap reader: %v", err)
+	}
+
+	err = m.LoadAllSchemas(info)
+	if err != nil {
+		return nil, err
+	}
+
+	schemaList, err := m.GetMcapSchemaList(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	return &McapReader{
+		Reader:     reader,
+		Info:       info,
+		SchemaList: schemaList,
+	}, nil
 }
 
 func (m *McapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message) (*DecodedMessage, error) {
 	decodedSchema, err := m.pbUtils.GetDecodedSchema(schema)
 	if err != nil {
-		fmt.Errorf("Failed to load schema")
-		return nil, err
+		return nil, fmt.Errorf("failed to load schema: %v", err)
 	}
 
 	messageDescriptor := decodedSchema.FindMessage(schema.Name)
 	if messageDescriptor == nil {
-		fmt.Errorf("Failed to find descriptor after loading pool")
-		return nil, err
+		return nil, errors.New("failed to find descriptor after loading pool")
 	}
 
 	dynMsg := dynamic.NewMessage(messageDescriptor)
 	if err := dynMsg.Unmarshal(message.Data); err != nil {
-		return nil, fmt.Errorf("Failed to parse message using included schema: %v", err)
+		return nil, fmt.Errorf("failed to parse message using included schema: %v", err)
 	}
 
 	decodedMessage := DecodedMessage{
@@ -66,6 +93,7 @@ func (m *McapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message
 	return &decodedMessage, nil
 }
 
+// LoadAllSchemas loads all the protobuf schemas found in the MCAP file into
 func (m *McapUtils) LoadAllSchemas(info *mcap.Info) error {
 	schemas := info.Schemas
 	retrySchemas := make([]*mcap.Schema, 0)
@@ -109,9 +137,7 @@ func (m *McapUtils) GetMcapSchemaList(reader *mcap.Reader) ([]string, error) {
 }
 
 func GetMcapSchemaMap(schemaList []string) (map[string]map[string][]float64, error) {
-	var mcapSchemaMap map[string]map[string][]float64
-
-	mcapSchemaMap = make(map[string]map[string][]float64)
+	mcapSchemaMap := make(map[string]map[string][]float64)
 	mcapSchemaMap["global_times"] = make(map[string][]float64)
 	mcapSchemaMap["global_times"]["times"] = make([]float64, 0)
 

@@ -8,12 +8,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// FileModel contains the information for a file (object) stored on S3
 type FileModel struct {
 	AwsBucket string `bson:"aws_bucket"`
 	FilePath  string `bson:"file_path"`
 	FileName  string `bson:"file_name"`
 }
 
+// FileModel contains the information for a serialized response of a file (object) stored on S3
 type FileModelResponse struct {
 	SignedUrl string `json:"signed_url"`
 	FileName  string `json:"file_name"`
@@ -21,18 +23,17 @@ type FileModelResponse struct {
 
 type VehicleRunModel struct {
 	Id             primitive.ObjectID     `bson:"_id,omitempty"`
-	Date           time.Time              `bson:"date"`
-	CarModel       string                 `bson:"car_model"`
+	ContentFiles   map[string][]FileModel `bson:"content_files,omitempty"`
 	SchemaVersions map[string]string      `bson:"schema_versions"`
 	Notes          *string                `bson:"notes,omitempty"`
-	McapFiles      []FileModel            `bson:"mcap_files,omitempty"`
-	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
-	ContentFiles   map[string][]FileModel `bson:"content_files,omitempty"`
 	Location       *string                `bson:"location,omitempty"`
 	EventType      *string                `bson:"event_type,omitempty"`
 	DynamicFields  map[string]interface{} `bson:"dynamic_fields,omitempty"`
+	McapFiles      []FileModel            `bson:"mcap_files,omitempty"`
+	CarModel       string                 `bson:"car_model"`
+	Date           time.Time              `bson:"date"`
+	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
 }
-
 type VehicleRunModelResponse struct {
 	Id             string                         `json:"id"`
 	Date           time.Time                      `json:"date"`
@@ -69,8 +70,8 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 		modelOut.MatFiles = fileResponses
 	}
 
+	modelOut.ContentFiles = make(map[string][]FileModelResponse)
 	for key, files := range model.ContentFiles {
-		modelOut.ContentFiles = make(map[string][]FileModelResponse)
 		if len(files) > 0 {
 			fileResponses := getFileModelResponse(ctx, s3Repo, files)
 			modelOut.ContentFiles[key] = fileResponses

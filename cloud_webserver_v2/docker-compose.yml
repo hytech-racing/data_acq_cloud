@@ -1,21 +1,17 @@
 services:
-    cloud_webserver_v2:
-        container_name: cloud_webserver_v2
-        build:
-            context: .
-            args:
-                AWS_REGION: ${AWS_REGION}
-                AWS_S3_RUN_BUCKET: ${AWS_S3_RUN_BUCKET}
-                AWS_ACCESS_KEY: ${AWS_ACCESS_KEY}
-                AWS_SECRET_KEY: ${AWS_SECRET_KEY}
-        ports:
-            - "8080:8080"
-        env_file:
-            - stack.env
-        environment:
-            MONGODB_URI: ${MONGODB_URI}
-        volumes:
-            - ./logs:/app/logs
-        depends_on:
-            - mongo
-        restart: unless-stopped
+  cloud_webserver_v2:
+    container_name: cloud_webserver_v2
+    build:
+      context: .
+      args:
+        MONGODB_URI: ${MONGODB_URI}
+        AWS_REGION: ${AWS_REGION}
+        AWS_S3_RUN_BUCKET: ${AWS_S3_RUN_BUCKET}
+        AWS_ACCESS_KEY: ${AWS_ACCESS_KEY}
+        AWS_SECRET_KEY: ${AWS_SECRET_KEY}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ./htmls:/app/files
+      - ./logs:/app/logs
