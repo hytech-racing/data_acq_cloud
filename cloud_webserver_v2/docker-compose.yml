@@ -14,5 +14,4 @@ services:
     restart: unless-stopped
     volumes:
       - ./htmls:/app/files
- 
-
+      - ./logs:/app/logs
