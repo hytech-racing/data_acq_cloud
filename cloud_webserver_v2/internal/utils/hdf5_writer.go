@@ -8,6 +8,12 @@ import (
 	"gonum.org/v1/hdf5"
 )
 
+// Wrapper to store our message data and timestamps
+type HDF5WrapperMessage struct {
+	Data      interface{} `hdf5:"Message"`
+	Timestamp float64     `hdf5:"Timestamp"`
+}
+
 type HDF5Writer struct {
 	file         *hdf5.File
 	rootGroup    *hdf5.Group
@@ -76,6 +82,29 @@ func (writer *HDF5Writer) exploreAndAddDataset(path string, chunk *hdf5.Group, d
 			}
 		}
 
+	case []*HDF5WrapperMessage:
+		// Create our own DataType based on what data we have
+		dtype, err := CreateHDF5DataType(data.([]*HDF5WrapperMessage)) // is it str, char, slice etc?
+		if err != nil {
+			return err
+		}
+
+		// write table to chunk
+		table, err := chunk.CreateTable(path, dtype, 10, 0)
+
+		if err != nil {
+			return err
+		}
+		defer table.Close()
+
+		//Append data to table
+		for i := 0; i != len(data.([]*HDF5WrapperMessage)); i++ {
+			if err = table.Append(data.([]*HDF5WrapperMessage)[i]); err != nil {
+				return err
+			}
+		}
+
+	// Leaving this open for interpolatedMat subscriber for now but we should really take this out tbh
 	case [][]float64:
 		flattenedSlice := FlattenSlice(data.([][]float64))
 		dims := []uint{uint(len(flattenedSlice) / 2), 2} // 2 rows: timestamp and value
@@ -115,6 +144,42 @@ func FlattenSlice(data [][]float64) []float64 {
 	return flattened
 }
 
+// CreateDataType func Creates DataType based on the given message
+func CreateHDF5DataType(data []*HDF5WrapperMessage) (*hdf5.Datatype, error) {
+	var dtype *hdf5.Datatype
+
+	// Find size of DataType
+	t := reflect.TypeOf(HDF5WrapperMessage{})
+	sz := int(t.Size())
+
+	// Since our HDF5WrapperMessageData type is a struct, we want to add fields (=> Compound Type)
+	cdt, err := hdf5.NewCompoundType(sz)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create Message field
+	data_field_dt, err := hdf5.NewDataTypeFromType(reflect.TypeOf(data[0].Data))
+	if err != nil {
+		return nil, err
+	}
+	err = cdt.Insert("Data", 0, data_field_dt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create Timestamp field
+	timestamp_field_dt, err := hdf5.NewDataTypeFromType(reflect.TypeFor[float64]())
+	if err != nil {
+		return nil, err
+	}
+	err = cdt.Insert("Timestamp", 16, timestamp_field_dt)
+	if err != nil {
+		return nil, err
+	}
+	dtype = &cdt.Datatype
+	return dtype, nil
+}
 func (writer *HDF5Writer) Close() error {
 	err := writer.rootGroup.Close()
 	if err != nil {
