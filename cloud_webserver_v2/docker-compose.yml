@@ -9,8 +9,7 @@ services:
         AWS_S3_RUN_BUCKET: ${AWS_S3_RUN_BUCKET}
         AWS_ACCESS_KEY: ${AWS_ACCESS_KEY}
         AWS_SECRET_KEY: ${AWS_SECRET_KEY}
+        MATLAB_URI: ${MATLAB_URI}
     ports:
       - "8080:8080"
-    env_file:
-      - stack.env
     restart: unless-stopped

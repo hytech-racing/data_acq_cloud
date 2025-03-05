@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,6 +13,7 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/mps"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -31,6 +33,7 @@ type mcapHandler struct {
 	s3Repository  *s3.S3Repository
 	dbClient      *database.DatabaseClient
 	fileProcessor *background.FileProcessor
+	mpsClient     *mps.MatlabClient
 }
 
 func NewMcapHandler(
@@ -39,11 +42,13 @@ func NewMcapHandler(
 	dbClient *database.DatabaseClient,
 	fileProcessor *background.FileProcessor,
 	fileUploadMiddleware *hytech_middleware.FileUploadMiddleware,
+	mpsClient *mps.MatlabClient,
 ) {
 	handler := &mcapHandler{
 		s3Repository:  s3Repository,
 		dbClient:      dbClient,
 		fileProcessor: fileProcessor,
+		mpsClient:     mpsClient,
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
@@ -54,6 +59,7 @@ func NewMcapHandler(
 		r.Get("/", handler.GetMcapsFromFilters)
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
 		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
+		r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
 	})
 }
 
@@ -259,6 +265,53 @@ func (h *mcapHandler) DeleteMcapFromID(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
+
+	return nil
+}
+
+func (h *mcapHandler) ProcessMatlabJob(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+
+	scriptsParam := r.URL.Query().Get("scripts")
+	if scriptsParam == "" {
+		return NewHandlerError("invalid request, must pass in query param scripts with a value of comma seperated script names", http.StatusBadRequest)
+	}
+	scripts := strings.Split(scriptsParam, ",")
+
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	mcap, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return NewHandlerError(fmt.Sprintf("no run with id %v found", mcapId), http.StatusNotFound)
+		}
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+	responseMcap := models.VehicleRunSerialize(ctx, h.s3Repository, *mcap)
+
+	matFiles := responseMcap.MatFiles
+
+	if len(matFiles) == 0 {
+		return NewHandlerError("no h5 files found", http.StatusFailedDependency)
+	}
+
+	// TODO: check if matfile exists on filesystem, if not download it from S3
+	// currently assume it exists on filesystem
+	for _, matFile := range matFiles {
+		for _, script := range scripts {
+			h.mpsClient.SubmitMatlabJob(matFile.FileName, script, script)
+		}
+	}
+
+	render.JSON(w, r, "jobs submitted")
 
 	return nil
 }
