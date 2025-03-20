@@ -54,7 +54,7 @@ type matlabJobResponse struct {
 // https://www.mathworks.com/help/mps/restfuljson/getresultofrequest.html
 type matlabJobResult struct {
 	// LHS resprents all the results calculated
-	// For our purposes, LHS will always be an array with 1 JSON string.
+	// For our purposes, LHS will always be an array with 1 JSON string
 	LHS []string `json:"lhs"`
 }
 
@@ -68,8 +68,8 @@ type matlabJobRequestPayload struct {
 	// For our purposes, RHS will be an array of 1 string which is the path to an .h5 file
 	RHS []string `json:"rhs"`
 
-	// Specify the notation of the MATLAB output response.
-	// We always use the "small" mode and the "string" nanInfFormat.
+	// Specify the notation of the MATLAB output response
+	// We always use the "small" mode and the "string" nanInfFormat
 	OutputFormat struct {
 		Mode         string `json:"mode"`
 		NanInfFormat string `json:"nanInfFormat"`
