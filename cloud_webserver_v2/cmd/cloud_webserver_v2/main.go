@@ -18,6 +18,7 @@ import (
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/logging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/mps"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
 	proto_sync "github.com/hytech-racing/cloud-webserver-v2/internal/proto_sync"
@@ -57,6 +58,10 @@ func main() {
 		log.Fatalf("Error loading .env file %s", err)
 	}
 	log.Println("Loaded .env file...")
+
+	mpsURI := os.Getenv("MATLAB_URI")
+	mpsClient := mps.NewMatlabClient(mpsURI)
+	mpsClient.PollForResults()
 
 	// Setup database our database connection
 	uri := os.Getenv("MONGODB_URI")
@@ -144,7 +149,7 @@ func main() {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
+	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, mpsClient)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
 
