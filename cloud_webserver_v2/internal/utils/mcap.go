@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -63,10 +64,45 @@ func (m *McapUtils) NewReader(r io.Reader) (*McapReader, error) {
 	}, nil
 }
 
+// GetDecodedMessage checks whether the encoding is json or protobuf and decodes
 func (m *McapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message) (*DecodedMessage, error) {
+	// Schema encoding may only be omitted for self-describing message encodings such as json.
+	if schema.Encoding == "json" || schema.Encoding == "jsonschema" || schema.Encoding == "" {
+		decodedMessage, err := m.DecodeJSON(schema, message)
+		if err != nil {
+			return nil, err
+		}
+		return decodedMessage, nil
+	} else if schema.Encoding == "protobuf" {
+		decodedMessage, err := m.DecodeProtobuf(schema, message)
+		if err != nil {
+			return nil, err
+		}
+		return decodedMessage, nil
+	}
+
+	return nil, errors.New("message is not in protobuf or json format")
+}
+
+// DecodeJSON func takes in schema and messsage and decodes accordingly (think of JSON as Maps)
+func (m *McapUtils) DecodeJSON(schema *mcap.Schema, message *mcap.Message) (*DecodedMessage, error) {
+	decodedMessage := DecodedMessage{
+		Topic:   schema.Name,
+		Data:    make(map[string]interface{}),
+		LogTime: message.LogTime,
+	}
+	err := json.Unmarshal(message.Data, &decodedMessage.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode JSON messsage: %v", err)
+	}
+	return &decodedMessage, nil
+}
+
+// DecodeProtobuf func takes in schema and messsage and decodes accordingly
+func (m *McapUtils) DecodeProtobuf(schema *mcap.Schema, message *mcap.Message) (*DecodedMessage, error) {
 	decodedSchema, err := m.pbUtils.GetDecodedSchema(schema)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load schema: %v", err)
+		return nil, fmt.Errorf("failed to load protobuf schema: %v", err)
 	}
 
 	messageDescriptor := decodedSchema.FindMessage(schema.Name)
@@ -76,7 +112,7 @@ func (m *McapUtils) GetDecodedMessage(schema *mcap.Schema, message *mcap.Message
 
 	dynMsg := dynamic.NewMessage(messageDescriptor)
 	if err := dynMsg.Unmarshal(message.Data); err != nil {
-		return nil, fmt.Errorf("failed to parse message using included schema: %v", err)
+		return nil, fmt.Errorf("failed to parse protobuf message using included schema: %v", err)
 	}
 
 	decodedMessage := DecodedMessage{

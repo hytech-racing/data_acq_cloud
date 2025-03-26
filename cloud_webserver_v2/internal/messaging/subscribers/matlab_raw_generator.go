@@ -3,6 +3,7 @@ package subscribers
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
@@ -80,25 +81,111 @@ func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) e
 
 // processSignalValue handles logic for whether to continue to dynamically decode the protobuf value or to directly add it to allSignalData
 func (w *RawMatlabWriter) processSignalValue(topic, signalName, signalPath string, value interface{}, logTime float64) {
-	dynamicMessage, ok := value.(*dynamic.Message)
-
-	if ok {
+	switch value.(type) {
+	case *dynamic.Message: // Dynamic message
 		if w.allSignalData[topic][signalName] == nil {
 			w.allSignalData[topic][signalName] = make(map[string]interface{})
 		}
 
 		// Process nested dynamic message fields
 		currentNest := w.allSignalData[topic][signalName]
-		w.addNestedValues(signalPath, currentNest.(map[string]interface{}), dynamicMessage, logTime)
-
-	} else {
-		// Non-dynamic message values are processed normally
+		w.addNestedValues(signalPath, currentNest.(map[string]interface{}), value.(*dynamic.Message), logTime)
+		return
+	case map[string]interface{}: // JSON message
 		if w.allSignalData[topic][signalName] == nil {
-			w.allSignalData[topic][signalName] = make([][]float64, 0)
+			w.allSignalData[topic][signalName] = make(map[string]interface{})
 		}
 
-		w.allSignalData[topic][signalName] = append(w.allSignalData[topic][signalName].([][]float64), []float64{logTime - *w.firstTime, utils.GetFloatValueOfInterface(value)})
-		w.maxSignalLength = max(w.maxSignalLength, len(w.allSignalData[topic][signalName].([][]float64)))
+		currentNest := w.allSignalData[topic][signalName]
+		w.addJSONValues(value.(map[string]interface{}), currentNest.(map[string]interface{}), signalPath, logTime)
+		return
+	case []interface{}: // Non-dynamic repeated message
+		if w.allSignalData[topic][signalName] == nil {
+			w.allSignalData[topic][signalName] = make(map[string]interface{})
+		}
+
+		currentNest := w.allSignalData[topic][signalName]
+		w.addNondynamicSliceValues(signalName, value, currentNest.(map[string]interface{}), signalPath, logTime)
+		return
+	default: // Non-dynamic message
+		if w.allSignalData[topic][signalName] == nil {
+			w.allSignalData[topic][signalName] = make([]*utils.HDF5WrapperMessage, 0)
+		}
+
+		valueRawM := &utils.HDF5WrapperMessage{
+			Data:      value,
+			Timestamp: (logTime - *w.firstTime),
+		}
+		w.allSignalData[topic][signalName] = append(w.allSignalData[topic][signalName].([]*utils.HDF5WrapperMessage), valueRawM)
+		w.maxSignalLength = max(w.maxSignalLength, len(w.allSignalData[topic][signalName].([]*utils.HDF5WrapperMessage)))
+	}
+}
+
+// Func addJSONValues takes in decodedValue as a map and adds the values in the givenMap
+// JSON messages ALWAYS come in maps of map -- example down below:
+// &{map[ConfigureableTest:map[test_bool:false test_double:2 test_float:1 test_int:2 test_string:asdf]] drivebrain_configuration 1741122430108270412}
+func (w *RawMatlabWriter) addJSONValues(decodedValue map[string]interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
+	baseSignalPath := signalPath
+	for signalName, value := range decodedValue {
+		baseSignalPath += "." + signalName
+		if _, ok := givenMap[signalName]; !ok {
+			givenMap[signalName] = make([]*utils.HDF5WrapperMessage, 0)
+		}
+		givenMapFieldLength := len(givenMap[signalName].([]*utils.HDF5WrapperMessage))
+
+		if givenMapFieldLength == 0 || givenMap[signalName].([]*utils.HDF5WrapperMessage)[givenMapFieldLength-1].Timestamp+0.005 <= (logTime-*w.firstTime) {
+			valueRawM := &utils.HDF5WrapperMessage{
+				Data:      value,
+				Timestamp: (logTime - *w.firstTime),
+			}
+			givenMap[signalName] = append(givenMap[signalName].([]*utils.HDF5WrapperMessage), valueRawM)
+			w.maxSignalLength = max(w.maxSignalLength, len(givenMap[signalName].([]*utils.HDF5WrapperMessage)))
+		}
+		baseSignalPath = signalPath
+	}
+}
+
+// addDynamicSliceValues process signals of Dynamic repeated/slice value
+func (w *RawMatlabWriter) addDynamicSliceValues(fieldName string, decodedValue interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
+	baseSignalPath := signalPath
+	unboxedNestedArr, _ := decodedValue.([]*dynamic.Message)
+	for i, unboxedNested := range unboxedNestedArr {
+		repeatedFieldName := fieldName + "_" + strconv.Itoa(i)
+		baseSignalPath += "." + repeatedFieldName //
+
+		if _, ok := givenMap[repeatedFieldName]; !ok {
+			givenMap[repeatedFieldName] = make(map[string]interface{})
+		}
+
+		w.addNestedValues(signalPath, givenMap[repeatedFieldName].(map[string]interface{}), unboxedNested, logTime)
+		baseSignalPath = signalPath
+	}
+}
+
+// addNondynamicSliceValues process signals of Nondynamic repeated/slice value
+func (w *RawMatlabWriter) addNondynamicSliceValues(fieldName string, decodedValue interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
+	baseSignalPath := signalPath
+
+	length := len(decodedValue.([]interface{}))
+	for i := 0; i < length; i++ {
+		repeatedFieldName := fieldName + "_" + strconv.Itoa(i)
+		baseSignalPath += "." + repeatedFieldName
+		repeatedValue := decodedValue.([]interface{})[i]
+
+		if _, ok := givenMap[repeatedFieldName]; !ok {
+			givenMap[repeatedFieldName] = make([]*utils.HDF5WrapperMessage, 0)
+		}
+		givenMapFieldLength := len(givenMap[repeatedFieldName].([]*utils.HDF5WrapperMessage))
+
+		if givenMapFieldLength == 0 || givenMap[repeatedFieldName].([]*utils.HDF5WrapperMessage)[givenMapFieldLength-1].Timestamp+0.005 <= (logTime-*w.firstTime) {
+			valueRawM := &utils.HDF5WrapperMessage{
+				Data:      repeatedValue,
+				Timestamp: (logTime - *w.firstTime),
+			}
+			givenMap[repeatedFieldName] = append(givenMap[repeatedFieldName].([]*utils.HDF5WrapperMessage), valueRawM)
+
+			w.maxSignalLength = max(w.maxSignalLength, len(givenMap[repeatedFieldName].([]*utils.HDF5WrapperMessage)))
+		}
 	}
 }
 
@@ -112,7 +199,8 @@ func (w *RawMatlabWriter) addNestedValues(signalPath string, nestedMap map[strin
 	baseSignalPath := signalPath
 	for _, field := range fieldNames {
 		fieldName := field.GetName()
-		baseSignalPath += "/" + fieldName
+
+		baseSignalPath += "." + fieldName
 
 		// Each dynamic message has field descriptors, not data. We need to extract those field descriptors and then use them
 		// to figure out what data values are in there. The value could be another map, a list of values, or just a single value.
@@ -130,24 +218,55 @@ func (w *RawMatlabWriter) addNestedValues(signalPath string, nestedMap map[strin
 
 		unboxedNested, isNestedMessage := decodedValue.(*dynamic.Message)
 		if isNestedMessage {
-			// If it is a nested message and another map doesn't exist for it, we will make one to use.
 			if _, ok := nestedMap[fieldName]; !ok {
 				nestedMap[fieldName] = make(map[string]interface{})
 			}
 
-			w.addNestedValues(signalPath, nestedMap[fieldName].(map[string]interface{}), unboxedNested, logTime)
-		} else {
-			if _, ok := nestedMap[fieldName]; !ok {
-				nestedMap[fieldName] = make([][]float64, 0)
+			// Dynamic repeated/slice message case
+			isRepeated := field.IsRepeated() // if a field has repeated label, then take it as a slice
+			if isRepeated {
+				w.addDynamicSliceValues(fieldName, decodedValue, nestedMap, baseSignalPath, logTime)
+				return
 			}
 
-			nestedMapFieldLength := len(nestedMap[fieldName].([][]float64))
-
-			if nestedMapFieldLength == 0 || nestedMap[fieldName].([][]float64)[nestedMapFieldLength-1][0]+0.005 <= (logTime-*w.firstTime) {
-				nestedMap[fieldName] = append(nestedMap[fieldName].([][]float64), []float64{logTime - *w.firstTime, utils.GetFloatValueOfInterface(decodedValue)})
-				w.maxSignalLength = max(w.maxSignalLength, len(nestedMap[fieldName].([][]float64)))
-			}
+			// Dynamic message case
+			w.addNestedValues(baseSignalPath, nestedMap[fieldName].(map[string]interface{}), unboxedNested, logTime)
+			return
 		}
+
+		// Non-dynamic repeated/slice message case
+		isRepeated := field.IsRepeated()
+		if isRepeated {
+			if _, ok := nestedMap[fieldName]; !ok {
+				nestedMap[fieldName] = make(map[string]interface{})
+			}
+
+			w.addNondynamicSliceValues(fieldName, decodedValue, nestedMap, baseSignalPath, logTime)
+			continue
+		}
+
+		// ENUM message case
+		enum := field.GetEnumType()
+		if enum != nil {
+			enumValue := enum.FindValueByNumber(decodedValue.(int32)) // Enum values always represented as int
+			decodedValue = enumValue.GetName()                        // Just replace  decoded value with the its enum name value (not number value)
+		}
+
+		// Non-Dynamic message case
+		if _, ok := nestedMap[fieldName]; !ok {
+			nestedMap[fieldName] = make([]*utils.HDF5WrapperMessage, 0)
+		}
+		nestedMapFieldLength := len(nestedMap[fieldName].([]*utils.HDF5WrapperMessage))
+
+		if nestedMapFieldLength == 0 || nestedMap[fieldName].([]*utils.HDF5WrapperMessage)[nestedMapFieldLength-1].Timestamp+0.005 <= (logTime-*w.firstTime) {
+			valueRawM := &utils.HDF5WrapperMessage{
+				Data:      decodedValue,
+				Timestamp: (logTime - *w.firstTime),
+			}
+			nestedMap[fieldName] = append(nestedMap[fieldName].([]*utils.HDF5WrapperMessage), valueRawM)
+			w.maxSignalLength = max(w.maxSignalLength, len(nestedMap[fieldName].([]*utils.HDF5WrapperMessage)))
+		}
+
 		baseSignalPath = signalPath
 	}
 }
