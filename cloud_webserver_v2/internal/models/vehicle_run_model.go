@@ -33,7 +33,9 @@ type VehicleRunModel struct {
 	CarModel       string                 `bson:"car_model"`
 	Date           time.Time              `bson:"date"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
+	MpsRecord      map[string]interface{} `bson:"mps_record,omitempty"`
 }
+
 type VehicleRunModelResponse struct {
 	Id             string                         `json:"id"`
 	Date           time.Time                      `json:"date"`
@@ -46,6 +48,7 @@ type VehicleRunModelResponse struct {
 	Location       *string                        `json:"location"`
 	EventType      *string                        `json:"event_type"`
 	DynamicFields  map[string]interface{}         `json:"dynamic_fields"`
+	MpsRecord      map[string]interface{}         `json:"mps_record"`
 }
 
 func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model VehicleRunModel) VehicleRunModelResponse {
@@ -58,6 +61,7 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 		Location:       model.Location,
 		EventType:      model.EventType,
 		DynamicFields:  model.DynamicFields,
+		MpsRecord:      model.MpsRecord,
 	}
 
 	if model.McapFiles != nil && len(model.McapFiles) > 0 {

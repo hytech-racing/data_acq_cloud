@@ -94,3 +94,13 @@ func (repo *MongoVehicleRunRepository) DeleteVehicleRunFromId(ctx context.Contex
 
 	return nil
 }
+
+// Delete a VehicleRunModel from the MongoDB database from a VehicleRun ID
+func (repo *MongoVehicleRunRepository) UpdateVehicleRunFromId(ctx context.Context, id primitive.ObjectID, vehicleRun *models.VehicleRunModel) error {
+	filter := bson.M{"_id": id}
+	resp := repo.collection.FindOneAndReplace(ctx, filter, vehicleRun)
+	if resp.Err() != nil {
+		return resp.Err()
+	}
+	return nil
+}

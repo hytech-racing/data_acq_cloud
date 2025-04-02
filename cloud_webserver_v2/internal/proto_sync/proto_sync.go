@@ -150,7 +150,6 @@ func (s *SyncService) StartListening(ctx context.Context, client *github.Client,
 			if err != nil {
 				log.Printf("Error while listening: %v", err)
 			}
-			return
 		}
 	}
 }
