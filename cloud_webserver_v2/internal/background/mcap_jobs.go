@@ -121,7 +121,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 		// Copy the HDF5 file contents over to the file in the volume
 		_, err = io.Copy(destHdf5File, hdf5File)
 		if err != nil {
-			fmt.Printf("failed to copy h5 file over to volume: %w", err)
+			return fmt.Errorf("failed to copy h5 file over to volume: %w", err)
 		}
 
 		// Create the MCAP file in the volume
@@ -134,7 +134,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 		// Copy the MCAP file contents over to the file in the volume
 		_, err = io.Copy(destMcapFile, mcapFileS3Reader)
 		if err != nil {
-			fmt.Printf("failed to copy mcap file over to volume: %w", err)
+			log.Printf("failed to copy mcap file over to volume: %v", err)
 		}
 	}
 
