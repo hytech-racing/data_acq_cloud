@@ -274,7 +274,7 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 
 			decodedMessage, err := mcapUtils.GetDecodedMessage(schema, message)
 			if err != nil {
-				log.Printf("could not decode message: %v", err)
+				log.Printf("error decoding message: %v", err)
 				continue
 			}
 

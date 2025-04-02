@@ -3,6 +3,8 @@ services:
     container_name: cloud_webserver_v2
     volumes:
       - run_metadata:/data/run_metadata
+      - ./htmls:/app/files
+      - ./logs:/app/logs
     build:
       context: .
       args:

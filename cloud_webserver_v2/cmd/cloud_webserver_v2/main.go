@@ -16,10 +16,12 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/logging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/mps"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
+	proto_sync "github.com/hytech-racing/cloud-webserver-v2/internal/proto_sync"
 )
 
 /* TODO:
@@ -40,6 +42,12 @@ var buzz string
 
 func main() {
 	println(buzz)
+
+	// Initialize Crash Logger Globally
+	logging.InitLogger(50)
+	customLogger := logging.GetLogger()
+	defer customLogger.RecoverAndLogPanic()
+
 	log.Println("Server starting...")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -91,6 +99,9 @@ func main() {
 	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket)
 	log.Println("Started S3 session...")
 
+	// Adding HT_Proto Listener...
+	proto_listener := proto_sync.Initializer(ctx, s3Repository)
+
 	// Create file fileProcessor with 10GB limit
 	fileProcessor, err := background.NewFileProcessor(
 		"./uploads",
@@ -140,30 +151,33 @@ func main() {
 
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, mpsClient)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
+	handler.NewDocumentationHandler(router, s3Repository)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
+	
 	go func() {
 		// Wait for a signal, then gracefully shut down
 		<-quit
 		println()
 		log.Println("Shutting down server...")
-
+		
 		log.Println("Waiting for file processor to finish...")
 		fileProcessor.Stop()
+
+		proto_listener.Stop()
 
 		// Gracefully disconnect from MongoDB
 		mongoShutdownCtx, mongoShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer mongoShutdownCancel()
-
+		
 		if err := dbClient.Disonnect(mongoShutdownCtx); err != nil {
 			log.Println("Error while disconnecting MongoDB:", err)
 		} else {
 			log.Println("Disconnected from MongoDB")
 		}
-
+			
 		os.Exit(0)
 	}()
 
