@@ -52,7 +52,7 @@ type matlabJobResponse struct {
 
 // Represents HTTP response of the result of a MPS job request
 // https://www.mathworks.com/help/mps/restfuljson/getresultofrequest.html
-type MatlabJobResult struct {
+type matlabJobResult struct {
 	// LHS resprents all the results calculated
 	// For our purposes, LHS will always be an array with 1 JSON string
 	LHS []string `json:"lhs"`
@@ -165,7 +165,7 @@ func (m *MatlabClient) processResult(jobId string) {
 		log.Fatalf("error reading response body: %v", err)
 	}
 
-	var data MatlabJobResult
+	var data matlabJobResult
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		log.Fatalf("error unmarshalling response body: %v", err)

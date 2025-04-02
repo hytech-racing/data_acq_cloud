@@ -117,19 +117,3 @@ func (uc *VehicleRunUseCase) UpdateVehicleRun(ctx context.Context, id primitive.
 	uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, id, model)
 	return nil
 }
-
-func (uc *VehicleRunUseCase) DeleteMpsRecordFunctionInVehicleRunByIdAndFunction(ctx context.Context, id primitive.ObjectID, functionName string) error {
-	runModel, err := uc.vechicleRunRepo.GetVehicleRunFromId(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	if runModel.MpsRecord == nil {
-		runModel.MpsRecord = make(map[string]interface{})
-	}
-
-	delete(runModel.MpsRecord, functionName)
-
-	uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, id, runModel)
-	return nil
-}
