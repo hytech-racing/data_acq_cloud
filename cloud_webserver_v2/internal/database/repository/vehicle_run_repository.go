@@ -25,7 +25,7 @@ type MongoVehicleRunRepository struct {
 func NewMongoVehicleRunRepository(dbClient *mongo.Client, database *mongo.Database) (*MongoVehicleRunRepository, error) {
 	collection := database.Collection(VehicleRunCollection)
 	if collection == nil {
-		return nil, fmt.Errorf("could not get collection: %v", VehicleRunCollection)
+		return nil, fmt.Errorf("could not get collection %s", VehicleRunCollection)
 	}
 
 	return &MongoVehicleRunRepository{
@@ -43,7 +43,6 @@ func (repo *MongoVehicleRunRepository) Save(ctx context.Context, vehicleRun *mod
 	}
 
 	vehicleRun.Id = res.InsertedID.(primitive.ObjectID)
-
 	return vehicleRun, nil
 }
 
