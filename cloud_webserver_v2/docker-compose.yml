@@ -1,6 +1,10 @@
 services:
   cloud_webserver_v2:
     container_name: cloud_webserver_v2
+    volumes:
+      - run_metadata:/data/run_metadata
+      - ./htmls:/app/files
+      - ./logs:/app/logs
     build:
       context: .
       args:
@@ -9,10 +13,11 @@ services:
         AWS_S3_RUN_BUCKET: ${AWS_S3_RUN_BUCKET}
         AWS_ACCESS_KEY: ${AWS_ACCESS_KEY}
         AWS_SECRET_KEY: ${AWS_SECRET_KEY}
+        ENV: ${ENV}
         MATLAB_URI: ${MATLAB_URI}
     ports:
       - "8080:8080"
     restart: unless-stopped
-    volumes:
-      - ./htmls:/app/files
-      - ./logs:/app/logs
+
+volumes:
+  run_metadata:

@@ -78,6 +78,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	if err != nil {
 		log.Fatalf("could not open mat matFile: %v", err)
 	}
+	defer hdf5File.Close()
 
 	hdf5FileName := fmt.Sprintf("%s.h5", genericFileName)
 	matObjectFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, hdf5FileName)
@@ -105,11 +106,42 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	}
 	log.Printf("uploaded vn time vel plot %v to s3", vnTimeVelPlotName)
 
+	// After successful processing, if we are in PRODUCTION, save the mcap and h5 file to our docker volume
+	if os.Getenv("ENV") == "PRODUCTION" {
+		// Create the directory structure for the files
+		os.MkdirAll(fmt.Sprintf("/data/run_metadata/%v-%v-%v", month, day, year), os.ModeDir)
+
+		// Create the HDF5 file in the volume
+		destHdf5File, err := os.Create(fmt.Sprintf("/data/run_metadata/%s", matObjectFilePath))
+		if err != nil {
+			return fmt.Errorf("error to create h5 file in volume %w", err)
+		}
+		defer destHdf5File.Close()
+
+		// Copy the HDF5 file contents over to the file in the volume
+		_, err = io.Copy(destHdf5File, hdf5File)
+		if err != nil {
+			return fmt.Errorf("failed to copy h5 file over to volume: %w", err)
+		}
+
+		// Create the MCAP file in the volume
+		destMcapFile, err := os.Create(fmt.Sprintf("/data/run_metadata/%s", mcapObjectFilePath))
+		if err != nil {
+			return fmt.Errorf("error to create mcap file in volume %w", err)
+		}
+		defer destMcapFile.Close()
+
+		// Copy the MCAP file contents over to the file in the volume
+		_, err = io.Copy(destMcapFile, mcapFileS3Reader)
+		if err != nil {
+			log.Printf("failed to copy mcap file over to volume: %v", err)
+		}
+	}
+
 	if err := os.Remove(hdf5Location); err != nil {
 		return fmt.Errorf("failed to remove created mat mcapFile: %w", err)
 	}
 
-	// After successful processing, remove the mcapFile and update total size
 	if err := os.Remove(job.FilePath); err != nil {
 		return fmt.Errorf("failed to remove processed mcapFile: %w", err)
 	}
@@ -161,6 +193,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 		log.Fatal(err)
 	}
 
+	// Update the file processor's total size and estimated size after removing
 	fp.TotalSize.Add(-job.Size)
 	fp.MiddlewareEstimatedSize.Add(-job.Size)
 	fp.updateJobStatus(job, StatusCompleted)
