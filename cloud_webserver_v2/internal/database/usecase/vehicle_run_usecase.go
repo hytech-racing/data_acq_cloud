@@ -87,6 +87,11 @@ func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters
 		bson_filters_m["event_type"] = bson.M{"$regex": primitive.Regex{Pattern: *filters.EventType, Options: "i"}}
 	}
 
+	// Filters if the object contains our wanted function
+	if filters.MpsFunction != nil {
+		bson_filters_m["mps_record."+*filters.MpsFunction] = bson.M{"$exists": true}
+	}
+
 	if len(bson_or) != 0 {
 		bson_filters_m["$or"] = bson_or
 	}
@@ -106,4 +111,9 @@ func (uc *VehicleRunUseCase) GetVehicleRunById(ctx context.Context, id primitive
 
 func (uc *VehicleRunUseCase) DeleteVehicleRunById(ctx context.Context, id primitive.ObjectID) error {
 	return uc.vechicleRunRepo.DeleteVehicleRunFromId(ctx, id)
+}
+
+func (uc *VehicleRunUseCase) UpdateVehicleRun(ctx context.Context, id primitive.ObjectID, model *models.VehicleRunModel) error {
+	uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, id, model)
+	return nil
 }
