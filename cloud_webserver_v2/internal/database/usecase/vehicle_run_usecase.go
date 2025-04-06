@@ -10,10 +10,10 @@ import (
 )
 
 type VehicleRunUseCase struct {
-	vechicleRunRepo *repository.MongoVehicleRunRepository
+	vechicleRunRepo repository.VehicleRunRepository
 }
 
-func NewVehicleRunUseCase(vehicleRunRepo *repository.MongoVehicleRunRepository) *VehicleRunUseCase {
+func NewVehicleRunUseCase(vehicleRunRepo repository.VehicleRunRepository) *VehicleRunUseCase {
 	return &VehicleRunUseCase{
 		vechicleRunRepo: vehicleRunRepo,
 	}
