@@ -327,7 +327,7 @@ func (h *mcapHandler) ProcessMatlabJob(w http.ResponseWriter, r *http.Request) *
 // UpdateMetadataRecordFromID takes in an ID from a URL param and formdata that determines which metadata to update in our VehicleRunModels.
 func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		return NewHandlerError("error parsing form data", http.StatusBadRequest)
 	}
 	defer r.MultipartForm.RemoveAll()
@@ -335,11 +335,6 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 	metadata := r.FormValue("metadata")
 	if metadata == "" {
 		return NewHandlerError("invalid request, must pass in metadata", http.StatusBadRequest)
-	}
-
-	newRecord := r.FormValue("record")
-	if newRecord == "" {
-		return NewHandlerError("invalid request, must pass in record", http.StatusBadRequest)
 	}
 
 	mcapId := chi.URLParam(r, "id")
@@ -358,36 +353,48 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 		return NewHandlerError(fmt.Sprintf("could not get vehicle run by id %v, %v", mcapId, err), http.StatusInternalServerError)
 	}
 
-	switch metadata {
-	case "date":
-		layout := "2006-01-02 15:04:05"
-		parsedDate, err := time.Parse(layout, newRecord)
-		if err != nil {
-			return NewHandlerError(fmt.Sprintf("invalid date format: %v", err), http.StatusBadRequest)
-		}
-		runModel.Date = parsedDate
-	case "note":
-		runModel.Notes = &newRecord
-	case "location":
-		runModel.Location = &newRecord
-	case "event_type":
-		runModel.EventType = &newRecord
-	case "mps_record": //Appends data to mps_record field
-		var mpsRecord map[string]interface{}
+	var metadataMap map[string]interface{}
+	if err := json.Unmarshal([]byte(metadata), &metadataMap); err != nil {
+		return NewHandlerError(fmt.Sprintf("invalid JSON format for metadata!: %v", err), http.StatusBadRequest)
+	}
 
-		// newRecord formdata will be something like {"max_speed" : 60}
-		if err := json.Unmarshal([]byte(newRecord), &mpsRecord); err != nil {
-			return NewHandlerError(fmt.Sprintf("invalid JSON format for mps_record: %v", err), http.StatusBadRequest)
-		}
+	for metadataname := range metadataMap {
+		switch metadataname {
+		case "date":
+			layout := time.RFC3339
+			parsedDate, err := time.Parse(layout, metadataMap[metadataname].(string))
+			if err != nil {
+				return NewHandlerError(fmt.Sprintf("invalid date format: %v", err), http.StatusBadRequest)
+			}
+			runModel.Date = parsedDate
+		case "note":
+			if note, ok := metadataMap[metadataname].(string); ok {
+				runModel.Notes = &note
+			}
+		case "location":
+			if location, ok := metadataMap[metadataname].(string); ok {
+				runModel.Location = &location
+			}
+		case "event_type":
+			if eventType, ok := metadataMap[metadataname].(string); ok {
+				runModel.EventType = &eventType
+			}
+		case "mps_record": //Appends data to mps_record field
+			mpsRaw, ok := metadataMap[metadataname].(map[string]interface{})
+			if !ok {
+				return NewHandlerError("mps_record metadata is not a valid JSON object", http.StatusBadRequest)
+			}
 
-		if runModel.MpsRecord == nil {
-			runModel.MpsRecord = make(map[string]interface{})
+			if runModel.MpsRecord == nil {
+				runModel.MpsRecord = make(map[string]interface{})
+			}
+
+			for function, record := range mpsRaw {
+				runModel.MpsRecord[function] = record
+			}
+		default:
+			return NewHandlerError("invalid metadata key", http.StatusBadRequest)
 		}
-		for function, record := range mpsRecord {
-			runModel.MpsRecord[function] = record
-		}
-	default:
-		return NewHandlerError("invalid metadata key", http.StatusBadRequest)
 	}
 
 	err = h.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, objectId, runModel)
