@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -332,11 +331,6 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 	}
 	defer r.MultipartForm.RemoveAll()
 
-	metadata := r.FormValue("metadata")
-	if metadata == "" {
-		return NewHandlerError("invalid request, must pass in metadata", http.StatusBadRequest)
-	}
-
 	mcapId := chi.URLParam(r, "id")
 	if mcapId == "" {
 		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
@@ -353,47 +347,34 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 		return NewHandlerError(fmt.Sprintf("could not get vehicle run by id %v, %v", mcapId, err), http.StatusInternalServerError)
 	}
 
-	var metadataMap map[string]interface{}
-	if err := json.Unmarshal([]byte(metadata), &metadataMap); err != nil {
-		return NewHandlerError(fmt.Sprintf("invalid JSON format for metadata!: %v", err), http.StatusBadRequest)
-	}
-
-	for metadataname := range metadataMap {
-		switch metadataname {
-		case "date":
-			layout := time.RFC3339
-			parsedDate, err := time.Parse(layout, metadataMap[metadataname].(string))
-			if err != nil {
-				return NewHandlerError(fmt.Sprintf("invalid date format: %v", err), http.StatusBadRequest)
-			}
-			runModel.Date = parsedDate
-		case "note":
-			if note, ok := metadataMap[metadataname].(string); ok {
-				runModel.Notes = &note
-			}
-		case "location":
-			if location, ok := metadataMap[metadataname].(string); ok {
-				runModel.Location = &location
-			}
-		case "event_type":
-			if eventType, ok := metadataMap[metadataname].(string); ok {
-				runModel.EventType = &eventType
-			}
-		case "mps_record": //Appends data to mps_record field
-			mpsRaw, ok := metadataMap[metadataname].(map[string]interface{})
-			if !ok {
-				return NewHandlerError("mps_record metadata is not a valid JSON object", http.StatusBadRequest)
-			}
+	for key, values := range r.Form {
+		if strings.HasPrefix(key, "mps.") {
+			mpsmetadata := make(map[string]interface{})
+			mpsmetadata[strings.TrimPrefix(key, "mps.")] = values[0]
 
 			if runModel.MpsRecord == nil {
 				runModel.MpsRecord = make(map[string]interface{})
 			}
 
-			for function, record := range mpsRaw {
+			for function, record := range mpsmetadata {
 				runModel.MpsRecord[function] = record
 			}
-		default:
-			return NewHandlerError("invalid metadata key", http.StatusBadRequest)
+		} else {
+			switch key {
+			case "date":
+				layout := time.RFC3339
+				parsedDate, err := time.Parse(layout, values[0])
+				if err != nil {
+					return NewHandlerError(fmt.Sprintf("invalid date format: %v", err), http.StatusBadRequest)
+				}
+				runModel.Date = parsedDate
+			case "location":
+				runModel.Location = &values[0]
+			case "notes":
+				runModel.Notes = &values[0]
+			case "event_type":
+				runModel.EventType = &values[0]
+			}
 		}
 	}
 
