@@ -60,6 +60,8 @@ func NewMcapHandler(
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
 		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
 		r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
+		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
+		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
 	})
 }
 
@@ -113,6 +115,11 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 	if queryParams.Has("search_text") {
 		search_text := queryParams.Get("search_text")
 		filters.SearchText = &search_text
+	}
+
+	if queryParams.Has("mps_function") {
+		mps_function := queryParams.Get("mps_function")
+		filters.MpsFunction = &mps_function
 	}
 
 	resModels, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
@@ -313,5 +320,112 @@ func (h *mcapHandler) ProcessMatlabJob(w http.ResponseWriter, r *http.Request) *
 
 	render.JSON(w, r, "jobs submitted")
 
+	return nil
+}
+
+// UpdateMetadataRecordFromID takes in an ID from a URL param and formdata that determines which metadata to update in our VehicleRunModels.
+func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		return NewHandlerError("error parsing form data", http.StatusBadRequest)
+	}
+	defer r.MultipartForm.RemoveAll()
+
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		log.Println("getting mcapID")
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	runModel, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not get vehicle run by id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	for key, values := range r.Form {
+		if strings.HasPrefix(key, "mps.") {
+			mpsmetadata := make(map[string]interface{})
+			mpsmetadata[strings.TrimPrefix(key, "mps.")] = values[0]
+
+			if runModel.MpsRecord == nil {
+				runModel.MpsRecord = make(map[string]interface{})
+			}
+
+			for function, record := range mpsmetadata {
+				runModel.MpsRecord[function] = record
+			}
+		} else {
+			switch key {
+			case "date":
+				layout := time.RFC3339
+				parsedDate, err := time.Parse(layout, values[0])
+				if err != nil {
+					return NewHandlerError(fmt.Sprintf("invalid date format: %v", err), http.StatusBadRequest)
+				}
+				runModel.Date = parsedDate
+			case "location":
+				runModel.Location = &values[0]
+			case "notes":
+				runModel.Notes = &values[0]
+			case "event_type":
+				runModel.EventType = &values[0]
+			}
+		}
+	}
+
+	err = h.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, objectId, runModel)
+	if err != nil {
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+
+	return nil
+}
+
+// ResetMetadataRecordFromID takes in an ID and metadata from a URL param that determines which metadata to reset in our VehicleRunModels.
+func (h *mcapHandler) ResetMetadataRecordFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+	metadata := chi.URLParam(r, "metadata")
+	if metadata == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		log.Println("getting mcapID")
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	runModel, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not get vehicle run by id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	switch metadata {
+	case "date":
+		runModel.Date = time.Now()
+	case "note":
+		runModel.Notes = nil
+	case "location":
+		runModel.Location = nil
+	case "event_type":
+		runModel.EventType = nil
+	case "mps_record":
+		runModel.MpsRecord = make(map[string]interface{})
+	default:
+		return NewHandlerError("invalid metadata key", http.StatusBadRequest)
+	}
+
+	err = h.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, objectId, runModel)
+	if err != nil {
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
 	return nil
 }
