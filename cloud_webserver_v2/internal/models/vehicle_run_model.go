@@ -30,7 +30,7 @@ type VehicleRunModel struct {
 	EventType      *string                `bson:"event_type,omitempty"`
 	DynamicFields  map[string]interface{} `bson:"dynamic_fields,omitempty"`
 	McapFiles      []FileModel            `bson:"mcap_files,omitempty"`
-	CarModel       string                 `bson:"car_model"`
+	CarModel       string                 `bson:"car_model,omitempty"`
 	Date           time.Time              `bson:"date"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
 	MpsRecord      map[string]interface{} `bson:"mps_record,omitempty"`
