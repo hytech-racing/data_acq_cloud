@@ -19,9 +19,9 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/logging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/mps"
+	proto_sync "github.com/hytech-racing/cloud-webserver-v2/internal/proto_sync"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
-	proto_sync "github.com/hytech-racing/cloud-webserver-v2/internal/proto_sync"
 )
 
 /* TODO:
@@ -95,8 +95,13 @@ func main() {
 		log.Fatal("could not get aws secret key environment variable")
 	}
 
+	awsS3EndPoint := os.Getenv("AWS_S3_ENDPOINT")
+	if awsS3EndPoint == "" {
+		log.Fatal("could not get aws s3 endpoint environment variable")
+	}
+
 	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
-	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket)
+	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket, awsS3EndPoint)
 	log.Println("Started S3 session...")
 
 	// Adding HT_Proto Listener...
@@ -156,13 +161,13 @@ func main() {
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	go func() {
 		// Wait for a signal, then gracefully shut down
 		<-quit
 		println()
 		log.Println("Shutting down server...")
-		
+
 		log.Println("Waiting for file processor to finish...")
 		fileProcessor.Stop()
 
@@ -171,13 +176,13 @@ func main() {
 		// Gracefully disconnect from MongoDB
 		mongoShutdownCtx, mongoShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer mongoShutdownCancel()
-		
+
 		if err := dbClient.Disonnect(mongoShutdownCtx); err != nil {
 			log.Println("Error while disconnecting MongoDB:", err)
 		} else {
 			log.Println("Disconnected from MongoDB")
 		}
-			
+
 		os.Exit(0)
 	}()
 
