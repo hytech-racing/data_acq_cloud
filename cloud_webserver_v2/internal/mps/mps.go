@@ -255,9 +255,9 @@ func (m *MatlabClient) SubmitMatlabJob(mcapId string, packageName string, functi
 		log.Fatalf("error getting vehicle run model: %v", err)
 	}
 
-	h5FileName := model.MatFiles[0].FileName
+	h5FilePath := model.MatFiles[0].FilePath
 
-	payload := newMatlabJobRequestPayload([]string{"/home/hytech/" + h5FileName})
+	payload := newMatlabJobRequestPayload([]string{"/data/run_metadata/" + h5FilePath})
 	payloadJson, err := json.Marshal(payload)
 	if err != nil {
 		log.Fatalf("error marshalling payload: %v", err)
