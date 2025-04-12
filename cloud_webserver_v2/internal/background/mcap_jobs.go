@@ -12,6 +12,7 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // PostProcessMCAPUploadJob handles the post processing of MCAP files.
@@ -64,9 +65,9 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	}
 	defer mcapFileS3Reader.Close()
 
-	year, month, day := job.Date.Date()
+	recordId := primitive.NewObjectID()
 	mcapFileName := job.Filename
-	mcapObjectFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, mcapFileName)
+	mcapObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
 	err = fp.s3Repository.WriteObjectReader(ctx, mcapFileS3Reader, mcapObjectFilePath)
 	if err != nil {
 		log.Fatal(err)
@@ -81,7 +82,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	defer hdf5File.Close()
 
 	hdf5FileName := fmt.Sprintf("%s.h5", genericFileName)
-	matObjectFilePath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, hdf5FileName)
+	matObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), hdf5FileName)
 	err = fp.s3Repository.WriteObjectReader(ctx, hdf5File, matObjectFilePath)
 	if err != nil {
 		log.Fatal(err)
@@ -90,7 +91,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 
 	// Uploading Lat-Lon file to S3
 	vnLatLonPlotName := fmt.Sprintf("%v_LatLon.png", genericFileName)
-	vnLatLonPlotFileObjectPath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnLatLonPlotName)
+	vnLatLonPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnLatLonPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath)
 	if err != nil {
 		log.Fatal(err)
@@ -99,7 +100,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 
 	// Uploading Time-Vel file to S3
 	vnTimeVelPlotName := fmt.Sprintf("%v_Velocity.png", genericFileName)
-	vnTimeVelPlotFileObjectPath := fmt.Sprintf("%v-%v-%v/%s", month, day, year, vnTimeVelPlotName)
+	vnTimeVelPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnTimeVelPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath)
 	if err != nil {
 		log.Fatal(err)
@@ -109,7 +110,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	// After successful processing, if we are in PRODUCTION, save the mcap and h5 file to our docker volume
 	if os.Getenv("ENV") == "PRODUCTION" {
 		// Create the directory structure for the files
-		os.MkdirAll(fmt.Sprintf("/data/run_metadata/%v-%v-%v", month, day, year), os.ModeDir)
+		os.MkdirAll(fmt.Sprintf("/data/run_metadata/%s", recordId.Hex()), os.ModeDir)
 
 		// Create the HDF5 file in the volume
 		destHdf5File, err := os.Create(fmt.Sprintf("/data/run_metadata/%s", matObjectFilePath))
@@ -186,7 +187,8 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 		McapFiles:    mcapFiles,
 		MatFiles:     matFiles,
 		ContentFiles: contentFiles,
-		MpsRecord:      make(map[string]interface{}),
+		MpsRecord:    make(map[string]interface{}),
+		Id:           recordId,
 	}
 
 	_, err = fp.dbClient.VehicleRunUseCase().CreateVehicleRun(ctx, vehicleRunModel)
