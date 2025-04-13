@@ -374,6 +374,8 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 				runModel.Notes = &values[0]
 			case "event_type":
 				runModel.EventType = &values[0]
+			case "car_model":
+				runModel.CarModel = values[0]
 			}
 		}
 	}
@@ -419,6 +421,8 @@ func (h *mcapHandler) ResetMetadataRecordFromID(w http.ResponseWriter, r *http.R
 		runModel.EventType = nil
 	case "mps_record":
 		runModel.MpsRecord = make(map[string]interface{})
+	case "car_model":
+		runModel.CarModel = ""
 	default:
 		return NewHandlerError("invalid metadata key", http.StatusBadRequest)
 	}
