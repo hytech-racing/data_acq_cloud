@@ -13,7 +13,10 @@ import (
 const VehicleRunCollection string = "vehicle_run"
 
 type VehicleRunRepository interface {
-	Save(ctx context.Context, vehicleRun *models.VehicleRunModel) error
+	Save(ctx context.Context, vehicleRun *models.VehicleRunModel) (*models.VehicleRunModel, error)
+	GetWithVehicleFilters(ctx context.Context, filters *bson.M) ([]models.VehicleRunModel, error)
+	GetVehicleRunFromId(ctx context.Context, id primitive.ObjectID) (*models.VehicleRunModel, error)
+	DeleteVehicleRunFromId(ctx context.Context, id primitive.ObjectID) error
 }
 
 type MongoVehicleRunRepository struct {
@@ -25,7 +28,7 @@ type MongoVehicleRunRepository struct {
 func NewMongoVehicleRunRepository(dbClient *mongo.Client, database *mongo.Database) (*MongoVehicleRunRepository, error) {
 	collection := database.Collection(VehicleRunCollection)
 	if collection == nil {
-		return nil, fmt.Errorf("could not get collection: %v", VehicleRunCollection)
+		return nil, fmt.Errorf("could not get collection %s", VehicleRunCollection)
 	}
 
 	return &MongoVehicleRunRepository{
@@ -43,7 +46,6 @@ func (repo *MongoVehicleRunRepository) Save(ctx context.Context, vehicleRun *mod
 	}
 
 	vehicleRun.Id = res.InsertedID.(primitive.ObjectID)
-
 	return vehicleRun, nil
 }
 
@@ -56,7 +58,7 @@ func (repo *MongoVehicleRunRepository) GetWithVehicleFilters(ctx context.Context
 
 	var modelResults []models.VehicleRunModel
 
-	if err = cursor.All(context.TODO(), &modelResults); err != nil {
+	if err = cursor.All(ctx, &modelResults); err != nil {
 		return nil, err
 	}
 

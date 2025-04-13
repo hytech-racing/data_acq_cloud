@@ -16,7 +16,8 @@ import (
 // for calling the Disconnect() method to gracefully disconnect from the database
 type DatabaseClient struct {
 	databaseClient       *mongo.Client
-	vehicleRunRepository *repository.MongoVehicleRunRepository
+	vehicleRunRepository repository.VehicleRunRepository
+	carMetricsRepository repository.CarMetricsRepository
 }
 
 const VehicleDataDatabase = "vehicle_data_db"
@@ -48,11 +49,21 @@ func NewDatabaseClient(ctx context.Context, uri string) (*DatabaseClient, error)
 	}
 	databaseClient.vehicleRunRepository = vehicleRunRepository
 
+	carMetricsRepository, err := repository.NewMongoCarMetricsRepository(client, vehicleDataDatabase)
+	if err != nil {
+		return nil, fmt.Errorf("could not create carMetricsRepository: %v", err)
+	}
+	databaseClient.carMetricsRepository = carMetricsRepository
+
 	return databaseClient, nil
 }
 
 func (client *DatabaseClient) VehicleRunUseCase() *usecase.VehicleRunUseCase {
 	return usecase.NewVehicleRunUseCase(client.vehicleRunRepository)
+}
+
+func (client *DatabaseClient) CarMetricsUseCase() *usecase.CarMetricsUseCase {
+	return usecase.NewCarMetricsUseCase(client.carMetricsRepository)
 }
 
 func (client *DatabaseClient) Disonnect(ctx context.Context) error {
