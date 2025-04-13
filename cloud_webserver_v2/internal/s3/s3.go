@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -16,17 +17,20 @@ type s3Session struct {
 	bucket        string
 }
 
-func NewS3Session(accessKey string, secretKey string, region string, bucket string) *S3Repository {
+func NewS3Session(accessKey string, secretKey string, region string, bucket string, endpoint string) *S3Repository {
 	staticCreds := credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion(region),
 		config.WithCredentialsProvider(staticCreds))
+
 	if err != nil {
 		log.Fatalf("could not load config: %v", err)
 	}
 
 	// Create an aws s3 service client
-	client := s3.NewFromConfig(cfg)
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 	presignClient := s3.NewPresignClient(client)
 
 	session := &s3Session{
