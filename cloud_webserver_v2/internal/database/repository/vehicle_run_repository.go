@@ -17,6 +17,7 @@ type VehicleRunRepository interface {
 	GetWithVehicleFilters(ctx context.Context, filters *bson.M) ([]models.VehicleRunModel, error)
 	GetVehicleRunFromId(ctx context.Context, id primitive.ObjectID) (*models.VehicleRunModel, error)
 	DeleteVehicleRunFromId(ctx context.Context, id primitive.ObjectID) error
+	UpdateVehicleRunFromId(ctx context.Context, id primitive.ObjectID, vehicleRun *models.VehicleRunModel) error
 }
 
 type MongoVehicleRunRepository struct {

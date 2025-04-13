@@ -114,6 +114,5 @@ func (uc *VehicleRunUseCase) DeleteVehicleRunById(ctx context.Context, id primit
 }
 
 func (uc *VehicleRunUseCase) UpdateVehicleRun(ctx context.Context, id primitive.ObjectID, model *models.VehicleRunModel) error {
-	uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, id, model)
-	return nil
+	return uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, id, model)
 }
