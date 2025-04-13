@@ -72,8 +72,8 @@ func main() {
 
 	// Setup MPS
 	mpsURI := os.Getenv("MATLAB_URI")
-	mpsClient := mps.NewMatlabClient(ctx, dbClient, mpsURI)
-	mpsClient.PollForResults()
+	mpsClient := mps.NewMatlabClient(dbClient, mpsURI)
+	mpsClient.PollForResults(ctx)
 
 	// Setup aws s3 connection
 	awsRegion := os.Getenv("AWS_REGION")
