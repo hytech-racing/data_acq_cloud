@@ -314,7 +314,7 @@ func (h *mcapHandler) ProcessMatlabJob(w http.ResponseWriter, r *http.Request) *
 	// currently assume it exists on filesystem
 	for _, matFile := range matFiles {
 		for _, script := range scripts {
-			h.mpsClient.SubmitMatlabJob(matFile.FileName, script, script)
+			h.mpsClient.SubmitMatlabJob(ctx, matFile.FileName, script, script)
 		}
 	}
 

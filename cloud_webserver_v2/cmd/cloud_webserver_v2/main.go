@@ -59,10 +59,6 @@ func main() {
 	}
 	log.Println("Loaded .env file...")
 
-	mpsURI := os.Getenv("MATLAB_URI")
-	mpsClient := mps.NewMatlabClient(mpsURI)
-	mpsClient.PollForResults()
-
 	// Setup database our database connection
 	uri := os.Getenv("MONGODB_URI")
 	if uri == "" {
@@ -73,6 +69,11 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Println("Connected to database...")
+
+	// Setup MPS
+	mpsURI := os.Getenv("MATLAB_URI")
+	mpsClient := mps.NewMatlabClient(dbClient, mpsURI)
+	mpsClient.PollForResults(ctx)
 
 	// Setup aws s3 connection
 	awsRegion := os.Getenv("AWS_REGION")
