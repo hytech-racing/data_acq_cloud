@@ -2,19 +2,34 @@ package mps
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+const h5FileDirectory = "/data/run_metadata/"
+
+type mpsJob struct {
+	// ID of the MCAP associated with the job
+	mcapId primitive.ObjectID
+
+	// URL of the job status
+	jobId string
+}
 
 type MatlabClient struct {
 	// URI of the MPS server
 	mpsBaseUrl string
 
 	// Contains the ids of all the jobs submitted and are being processed/queued
-	jobsProcessing []string
+	jobsProcessing []mpsJob
+	dbClient       *database.DatabaseClient
 }
 
 type matlabJobState string
@@ -90,7 +105,7 @@ func newMatlabJobRequestPayload(rhs []string) *matlabJobRequestPayload {
 	}
 }
 
-func NewMatlabClient(mpsBaseUrl string) *MatlabClient {
+func NewMatlabClient(dbClient *database.DatabaseClient, mpsBaseUrl string) *MatlabClient {
 	resp, err := http.Get(mpsBaseUrl + "/api/health")
 
 	if err != nil {
@@ -105,20 +120,21 @@ func NewMatlabClient(mpsBaseUrl string) *MatlabClient {
 
 	return &MatlabClient{
 		mpsBaseUrl:     mpsBaseUrl,
-		jobsProcessing: []string{},
+		jobsProcessing: []mpsJob{},
+		dbClient:       dbClient,
 	}
 }
 
 // Enables the poll for result loop
-func (m *MatlabClient) PollForResults() {
-	go m.pollForResults()
+func (m *MatlabClient) PollForResults(ctx context.Context) {
+	go m.pollForResults(ctx)
 }
 
-func (m *MatlabClient) pollForResults() {
+func (m *MatlabClient) pollForResults(ctx context.Context) {
 	for {
-		newJobsProcessing := []string{}
+		newJobsProcessing := []mpsJob{}
 		for _, job := range m.jobsProcessing {
-			resp, err := http.Get(m.mpsBaseUrl + job)
+			resp, err := http.Get(m.mpsBaseUrl + job.jobId)
 			if err != nil {
 				log.Fatalf("error getting job status: %v", err)
 			}
@@ -135,8 +151,8 @@ func (m *MatlabClient) pollForResults() {
 			}
 
 			if data.State == READY {
-				m.processResult(job)
-				m.deleteMatlabJobResult(job)
+				m.processResult(ctx, job)
+				m.deleteMatlabJobResult(job.jobId)
 			} else {
 				newJobsProcessing = append(newJobsProcessing, job)
 			}
@@ -146,10 +162,10 @@ func (m *MatlabClient) pollForResults() {
 	}
 }
 
-func (m *MatlabClient) processResult(jobId string) {
-	log.Printf("processing result for mps job: %s", jobId)
+func (m *MatlabClient) processResult(ctx context.Context, job mpsJob) {
+	log.Printf("processing result for mps job: %s", job.jobId)
 
-	resp, err := http.Get(m.mpsBaseUrl + jobId + "/result")
+	resp, err := http.Get(m.mpsBaseUrl + job.jobId + "/result")
 	if err != nil {
 		log.Fatalf("error getting job result: %v", err)
 	}
@@ -171,7 +187,31 @@ func (m *MatlabClient) processResult(jobId string) {
 		log.Fatalf("error unmarshalling response body: %v", err)
 	}
 
-	log.Printf("result for mps job %s: %s", jobId, data.LHS[0])
+	// parse the result from LHS
+	var result map[string]interface{}
+	err = json.Unmarshal([]byte(data.LHS[0]), &result)
+	if err != nil {
+		log.Fatalf("Error parsing JSON: %v", err)
+	}
+
+	// now store result into the database
+	runModel, err := m.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, job.mcapId)
+	if err != nil {
+		log.Fatalf("could not get vehicle run by id %v, %v", job.mcapId, err)
+	}
+
+	// result will only be a map of len 1 but we iterate over it to get the k/v
+	for k, v := range result {
+		runModel.MpsRecord[k] = v
+	}
+
+	// update the vehicle run in the database
+	err = m.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, job.mcapId, runModel)
+	if err != nil {
+		log.Fatalf("could not update vehicle run %v, %v", job.mcapId, err)
+	}
+
+	log.Printf("saved result for mps job into mongodb %s: %s", job.jobId, data.LHS[0])
 }
 
 // Removes the job as well as the job result from the MPS.
@@ -201,9 +241,22 @@ func (m *MatlabClient) deleteMatlabJobResult(jobId string) {
 // Submits a new synchronous job to the MPS.
 // The MPS client will save the job id and wait for the result and process it in the background
 // https://www.mathworks.com/help/mps/restfuljson/postasynchronousrequest.html
-func (m *MatlabClient) SubmitMatlabJob(h5FileName string, packageName string, functionName string) {
+func (m *MatlabClient) SubmitMatlabJob(ctx context.Context, mcapId string, packageName string, functionName string) {
 	log.Println("submitting matlab job")
-	payload := newMatlabJobRequestPayload([]string{"/home/hytech/" + h5FileName})
+
+	primitiveId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		log.Fatalf("error converting mcapId to primitive.ObjectID: %v", err)
+	}
+
+	model, err := m.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, primitiveId)
+	if err != nil {
+		log.Fatalf("error getting vehicle run model: %v", err)
+	}
+
+	h5FilePath := model.MatFiles[0].FilePath
+
+	payload := newMatlabJobRequestPayload([]string{h5FileDirectory + h5FilePath})
 	payloadJson, err := json.Marshal(payload)
 	if err != nil {
 		log.Fatalf("error marshalling payload: %v", err)
@@ -229,7 +282,10 @@ func (m *MatlabClient) SubmitMatlabJob(h5FileName string, packageName string, fu
 		log.Fatalf("error unmarshalling response body: %v", err)
 	}
 
-	m.jobsProcessing = append(m.jobsProcessing, data.Self)
+	m.jobsProcessing = append(m.jobsProcessing, mpsJob{
+		mcapId: primitiveId,
+		jobId:  data.Self,
+	})
 
 	log.Printf("matlab job submitted, %s", data.Self)
 }
