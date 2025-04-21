@@ -183,7 +183,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 
 	vehicleRunModel := &models.VehicleRunModel{
 		Date:         job.Date,
-		CarModel:     "HT08",
+		CarModel:     "HT09",
 		McapFiles:    mcapFiles,
 		MatFiles:     matFiles,
 		ContentFiles: contentFiles,
