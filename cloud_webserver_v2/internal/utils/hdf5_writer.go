@@ -158,22 +158,22 @@ func CreateHDF5DataType(data []*HDF5WrapperMessage) (*hdf5.Datatype, error) {
 		return nil, err
 	}
 
-	// Create Message field
-	data_field_dt, err := hdf5.NewDataTypeFromType(reflect.TypeOf(data[0].Data))
-	if err != nil {
-		return nil, err
-	}
-	err = cdt.Insert("Data", 0, data_field_dt)
-	if err != nil {
-		return nil, err
-	}
-
 	// Create Timestamp field
 	timestamp_field_dt, err := hdf5.NewDataTypeFromType(reflect.TypeFor[float64]())
 	if err != nil {
 		return nil, err
 	}
 	err = cdt.Insert("Timestamp", 16, timestamp_field_dt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create Message field
+	data_field_dt, err := hdf5.NewDataTypeFromType(reflect.TypeOf(data[0].Data))
+	if err != nil {
+		return nil, err
+	}
+	err = cdt.Insert("Data", 0, data_field_dt)
 	if err != nil {
 		return nil, err
 	}
