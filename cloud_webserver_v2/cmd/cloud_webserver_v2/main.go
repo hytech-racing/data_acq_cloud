@@ -96,8 +96,13 @@ func main() {
 		log.Fatal("could not get aws secret key environment variable")
 	}
 
+	awsS3EndPoint := os.Getenv("AWS_S3_ENDPOINT")
+	if awsS3EndPoint == "" {
+		log.Fatal("could not get aws s3 endpoint environment variable")
+	}
+
 	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
-	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket)
+	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket, awsS3EndPoint)
 	log.Println("Started S3 session...")
 
 	// Adding HT_Proto Listener...
@@ -153,6 +158,7 @@ func main() {
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, mpsClient)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
+	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)

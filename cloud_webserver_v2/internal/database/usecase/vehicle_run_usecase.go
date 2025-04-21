@@ -10,10 +10,10 @@ import (
 )
 
 type VehicleRunUseCase struct {
-	vechicleRunRepo *repository.MongoVehicleRunRepository
+	vechicleRunRepo repository.VehicleRunRepository
 }
 
-func NewVehicleRunUseCase(vehicleRunRepo *repository.MongoVehicleRunRepository) *VehicleRunUseCase {
+func NewVehicleRunUseCase(vehicleRunRepo repository.VehicleRunRepository) *VehicleRunUseCase {
 	return &VehicleRunUseCase{
 		vechicleRunRepo: vehicleRunRepo,
 	}
@@ -114,6 +114,5 @@ func (uc *VehicleRunUseCase) DeleteVehicleRunById(ctx context.Context, id primit
 }
 
 func (uc *VehicleRunUseCase) UpdateVehicleRun(ctx context.Context, id primitive.ObjectID, model *models.VehicleRunModel) error {
-	uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, id, model)
-	return nil
+	return uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, id, model)
 }

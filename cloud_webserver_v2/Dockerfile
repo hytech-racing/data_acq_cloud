@@ -36,6 +36,7 @@ COPY --from=go-builder /app/cmd/cloud_webserver_v2/server .
 ARG MONGODB_URI
 ARG AWS_REGION
 ARG AWS_S3_RUN_BUCKET
+ARG AWS_S3_ENDPOINT
 ARG AWS_ACCESS_KEY
 ARG AWS_SECRET_KEY
 ARG MATLAB_URI
@@ -44,6 +45,7 @@ ARG ENV
 RUN echo "MONGODB_URI=${MONGODB_URI}" >> .env && \
     echo "AWS_REGION=${AWS_REGION}" >> .env && \
     echo "AWS_S3_RUN_BUCKET=${AWS_S3_RUN_BUCKET}" >> .env && \
+    echo "AWS_S3_ENDPOINT=${AWS_S3_ENDPOINT}" >> .env && \
     echo "AWS_ACCESS_KEY=${AWS_ACCESS_KEY}" >> .env && \
     echo "AWS_SECRET_KEY=${AWS_SECRET_KEY}" >> .env && \
     echo "ENV=${ENV}" >> .env && \
