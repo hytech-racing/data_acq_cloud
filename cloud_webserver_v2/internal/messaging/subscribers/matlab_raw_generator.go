@@ -226,12 +226,12 @@ func (w *RawMatlabWriter) addNestedValues(signalPath string, nestedMap map[strin
 			isRepeated := field.IsRepeated() // if a field has repeated label, then take it as a slice
 			if isRepeated {
 				w.addDynamicSliceValues(fieldName, decodedValue, nestedMap, baseSignalPath, logTime)
-				return
+				continue
 			}
 
 			// Dynamic message case
 			w.addNestedValues(baseSignalPath, nestedMap[fieldName].(map[string]interface{}), unboxedNested, logTime)
-			return
+			continue
 		}
 
 		// Non-dynamic repeated/slice message case
