@@ -187,7 +187,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 		McapFiles:    mcapFiles,
 		MatFiles:     matFiles,
 		ContentFiles: contentFiles,
-		MpsRecord:    make(map[string]interface{}),
+		MpsRecord:    models.MpsRecordModel{},
 		Id:           recordId,
 	}
 

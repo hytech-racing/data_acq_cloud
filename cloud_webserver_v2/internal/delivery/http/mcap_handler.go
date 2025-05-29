@@ -285,6 +285,11 @@ func (h *mcapHandler) ProcessMatlabJob(w http.ResponseWriter, r *http.Request) *
 	}
 	scripts := strings.Split(scriptsParam, ",")
 
+	versionParam := r.URL.Query().Get("version")
+	if versionParam == "" {
+		return NewHandlerError("invalid request, must pass in archive version in query params", http.StatusBadRequest)
+	}
+
 	mcapId := chi.URLParam(r, "id")
 	if mcapId == "" {
 		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
@@ -310,12 +315,8 @@ func (h *mcapHandler) ProcessMatlabJob(w http.ResponseWriter, r *http.Request) *
 		return NewHandlerError("no h5 files found", http.StatusFailedDependency)
 	}
 
-	// TODO: check if matfile exists on filesystem, if not download it from S3
-	// currently assume it exists on filesystem
-	for _, matFile := range matFiles {
-		for _, script := range scripts {
-			h.mpsClient.SubmitMatlabJob(ctx, matFile.FileName, script, script)
-		}
+	for _, script := range scripts {
+		h.mpsClient.SubmitMatlabJob(ctx, h.s3Repository, mcapId, versionParam, script)
 	}
 
 	render.JSON(w, r, "jobs submitted")
@@ -349,16 +350,18 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 
 	for key, values := range r.Form {
 		if strings.HasPrefix(key, "mps.") {
-			mpsmetadata := make(map[string]interface{})
-			mpsmetadata[strings.TrimPrefix(key, "mps.")] = values[0]
+			// TODO: Figure out if updating MPS with an HTTP request is needed
 
-			if runModel.MpsRecord == nil {
-				runModel.MpsRecord = make(map[string]interface{})
-			}
+			// mpsMetadata := make(map[string]interface{})
+			// mpsMetadata[strings.TrimPrefix(key, "mps.")] = values[0]
 
-			for function, record := range mpsmetadata {
-				runModel.MpsRecord[function] = record
-			}
+			// if runModel.MpsRecord == nil {
+			// 	runModel.MpsRecord = make(map[string]models.MpsScripts)
+			// }
+
+			// for function, record := range mpsMetadata {
+			// 	runModel.MpsRecord[function] = record
+			// }
 		} else {
 			switch key {
 			case "date":
@@ -419,8 +422,9 @@ func (h *mcapHandler) ResetMetadataRecordFromID(w http.ResponseWriter, r *http.R
 		runModel.Location = nil
 	case "event_type":
 		runModel.EventType = nil
-	case "mps_record":
-		runModel.MpsRecord = make(map[string]interface{})
+	// TODO: Figure out if updating MPS with an HTTP request is needed
+	// case "mps_record":
+	// 	runModel.MpsRecord = make(map[string]interface{})
 	case "car_model":
 		runModel.CarModel = ""
 	default:

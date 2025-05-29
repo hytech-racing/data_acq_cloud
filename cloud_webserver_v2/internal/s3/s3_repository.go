@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -91,6 +92,33 @@ func (s *S3Repository) DeleteObject(ctx context.Context, bucket string, objectPa
 	_, err := s.s3_session.client.DeleteObject(ctx, &params)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// DownloadObject retrieves an object from S3 located at the bucket and object path and downloads it to the file specified by fileLocation
+func (s *S3Repository) DownloadObject(ctx context.Context, bucket string, objectPath string, fileLocation string) error {
+	params := &s3.GetObjectInput{
+		Bucket: &bucket,
+		Key:    &objectPath,
+	}
+
+	resp, err := s.s3_session.client.GetObject(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to get object from S3: %w", err)
+	}
+	defer resp.Body.Close()
+
+	outFile, err := os.Create(fileLocation)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %w", err)
+	}
+	defer outFile.Close()
+
+	_, err = io.Copy(outFile, resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to write S3 object to file: %w", err)
 	}
 
 	return nil

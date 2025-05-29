@@ -21,6 +21,22 @@ type FileModelResponse struct {
 	FileName  string `json:"file_name"`
 }
 
+// MpsScriptResultModel represents the schema of the returned result of a MATLAB script
+type MpsScriptResultModel struct {
+	// Type can be "mat", "image", or "text"
+	Type string `json:"type"`
+
+	// If Type is "mat" or "image", Result will be a path to the file as a string
+	// If Type is "text"", Result will be the result as a string
+	Result string `json:"result"`
+}
+
+// MpsScriptModel represents a map of MATLAB script names to their results
+type MpsScriptModel map[string]MpsScriptResultModel
+
+// MpsRecord represents a map of MATLAB package names to their scripts
+type MpsRecordModel map[string]MpsScriptModel
+
 type VehicleRunModel struct {
 	Id             primitive.ObjectID     `bson:"_id,omitempty"`
 	ContentFiles   map[string][]FileModel `bson:"content_files,omitempty"`
@@ -33,7 +49,7 @@ type VehicleRunModel struct {
 	CarModel       string                 `bson:"car_model,omitempty"`
 	Date           time.Time              `bson:"date"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
-	MpsRecord      map[string]interface{} `bson:"mps_record,omitempty"`
+	MpsRecord      MpsRecordModel              `bson:"mps_record,omitempty"`
 }
 
 type VehicleRunModelResponse struct {
@@ -48,7 +64,7 @@ type VehicleRunModelResponse struct {
 	Location       *string                        `json:"location"`
 	EventType      *string                        `json:"event_type"`
 	DynamicFields  map[string]interface{}         `json:"dynamic_fields"`
-	MpsRecord      map[string]interface{}         `json:"mps_record"`
+	MpsRecord      MpsRecordModel                      `json:"mps_record"`
 }
 
 func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model VehicleRunModel) VehicleRunModelResponse {
