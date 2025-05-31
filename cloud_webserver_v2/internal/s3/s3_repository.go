@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -109,6 +110,11 @@ func (s *S3Repository) DownloadObject(ctx context.Context, bucket string, object
 		return fmt.Errorf("failed to get object from S3: %w", err)
 	}
 	defer resp.Body.Close()
+
+	err = os.MkdirAll(filepath.Dir(fileLocation), 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create local directory: %w", err)
+	}
 
 	outFile, err := os.Create(fileLocation)
 	if err != nil {

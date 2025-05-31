@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
@@ -16,7 +17,12 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// h5FileDirectory is the directory where the .h5 files are stored locally, acts as s3 cache
 const h5FileDirectory = "/data/run_metadata/"
+
+// mpsInstanceDirectory is the path of the MPS instance directory
+// /mps_data is the mount point of the mps_data Docker volume on this container
+const mpsInstanceDirectory = "/mps_data/mps_workspace/Instances/mps_4"
 
 // mpsJob represents a MATLAB job submitted to the MPS
 // It includes important information about the job
@@ -160,7 +166,7 @@ func NewMatlabClient(dbClient *database.DatabaseClient, mpsBaseUrl string, pollD
 
 // Polls the MPS for the result of a job until it is ready
 // Once it's ready, it processes the job result and then deletes it off MPS
-func (m *MatlabClient) pollForJobResult(ctx context.Context, mpsJob mpsJob) {
+func (m *MatlabClient) pollForJobResult(mpsJob mpsJob, s3Repo *s3.S3Repository) {
 	for {
 		resp, err := http.Get(m.mpsBaseUrl + mpsJob.jobId)
 		if err != nil {
@@ -179,9 +185,11 @@ func (m *MatlabClient) pollForJobResult(ctx context.Context, mpsJob mpsJob) {
 		}
 
 		if data.State == READY {
-			m.processResult(ctx, mpsJob)
+			m.processResult(mpsJob, s3Repo)
 			m.deleteMatlabJobResult(mpsJob.jobId)
+			return
 		} else {
+			log.Println("job not ready yet, current state:", data.State)
 			time.Sleep(m.pollDuration)
 		}
 
@@ -191,7 +199,10 @@ func (m *MatlabClient) pollForJobResult(ctx context.Context, mpsJob mpsJob) {
 
 // Helper function that contains the logic for processing script results from MPS
 // Stores the results properly into MongoDB and S3
-func (m *MatlabClient) processResult(ctx context.Context, job mpsJob) {
+func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	log.Printf("processing result for mps job: %s", job.jobId)
 
 	resp, err := http.Get(m.mpsBaseUrl + job.jobId + "/result")
@@ -225,17 +236,70 @@ func (m *MatlabClient) processResult(ctx context.Context, job mpsJob) {
 	}
 
 	// update the model
-	// TODO: flesh out the logic more here
-	// different things should happen depending on the type of result
+	result := scriptResult.Result
+
 	switch scriptResult.Type {
-	case "mat":
-	case "image":
-		// ensure file exists
-		// move the file over to local s3 cache and then upload to s3
-	case "text":
+	case "mat", "image":
+		// scriptResult.Result = /data/mps_generated/file_name.mat
+		mpsGeneratedFileLocation := mpsInstanceDirectory + scriptResult.Result
+
+		// ensure generated file exists
+		if _, err := os.Stat(mpsGeneratedFileLocation); os.IsNotExist(err) {
+			log.Fatalf("generated file does not exist: %s", mpsGeneratedFileLocation)
+		}
+
+		// copy the generated file to the local s3 cache directory
+		s3FilePath := job.mcapId.Hex() + "/" + job.packageVersion + "/" + job.functionName + "/" + filepath.Base(scriptResult.Result)
+		s3CacheFileLocation := h5FileDirectory + s3FilePath
+		err = os.MkdirAll(filepath.Dir(s3CacheFileLocation), 0755)
+		if err != nil {
+			log.Fatalf("error creating local directory for file %s: %v", s3CacheFileLocation, err)
+		}
+
+		srcFile, err := os.Open(mpsGeneratedFileLocation)
+		if err != nil {
+			log.Fatalf("failed to open generated file %s: %v", mpsGeneratedFileLocation, err)
+		}
+		defer srcFile.Close()
+
+		destFile, err := os.Create(s3CacheFileLocation)
+		if err != nil {
+			log.Fatalf("failed to create destination file %s: %v", s3CacheFileLocation, err)
+		}
+		defer destFile.Close()
+
+		_, err = io.Copy(destFile, srcFile)
+		if err != nil {
+			log.Fatalf("failed to copy file from %s to %s: %v", mpsGeneratedFileLocation, s3CacheFileLocation, err)
+		}
+
+		// delete the generated file from the MPS instance directory
+		err = os.Remove(mpsGeneratedFileLocation)
+		if err != nil {
+			log.Fatalf("failed to delete generated file %s: %v", mpsGeneratedFileLocation, err)
+		}
+
+		// save the file to S3
+		err = s3Repo.WriteObjectReader(ctx, srcFile, s3FilePath)
+		if err != nil {
+			log.Fatalf("error writing file to s3: %v", err)
+		}
+
+		result = s3FilePath
+
+		fallthrough
+	default:
+		if runModel.MpsRecord == nil {
+			runModel.MpsRecord = make(models.MpsRecordModel)
+		}
+
+		if runModel.MpsRecord[job.packageVersion] == nil {
+			runModel.MpsRecord[job.packageVersion] = make(models.MpsScriptModel)
+		}
+
 		runModel.MpsRecord[job.packageVersion][job.functionName] = models.MpsScriptResultModel{
 			Type:   scriptResult.Type,
-			Result: scriptResult.Result,
+			Result: result,
 		}
 	}
 
@@ -244,6 +308,8 @@ func (m *MatlabClient) processResult(ctx context.Context, job mpsJob) {
 	if err != nil {
 		log.Fatalf("could not update vehicle run %v, %v", job.mcapId, err)
 	}
+
+	cancel()
 
 	log.Printf("saved result for mps job into mongodb %s: %s", job.jobId, data.LHS[0])
 }
@@ -325,12 +391,12 @@ func (m *MatlabClient) SubmitMatlabJob(ctx context.Context, s3Repo *s3.S3Reposit
 	}
 
 	// spawn go routine to poll for result
-	go m.pollForJobResult(ctx, mpsJob{
+	go m.pollForJobResult(mpsJob{
 		mcapId:         primitiveId,
 		jobId:          data.Self,
 		packageVersion: packageName,
 		functionName:   functionName,
-	})
+	}, s3Repo)
 
 	log.Printf("matlab job submitted, %s", data.Self)
 }
