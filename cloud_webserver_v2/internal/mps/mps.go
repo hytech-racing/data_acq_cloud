@@ -147,11 +147,11 @@ func NewMatlabClient(dbClient *database.DatabaseClient, mpsBaseUrl string, pollD
 	resp, err := http.Get(mpsBaseUrl + "/api/health")
 
 	if err != nil {
-		log.Panicf("mps client error connecting to %s: %v", mpsBaseUrl, err)
+		log.Printf("mps client error connecting to %s: %v", mpsBaseUrl, err)
 	}
 
 	if resp.StatusCode != 200 {
-		log.Panicf("mps client error connecting to %s: %v", mpsBaseUrl, err)
+		log.Printf("mps client error connecting to %s: %v", mpsBaseUrl, err)
 	}
 
 	log.Println("connected to mps")
