@@ -2,7 +2,7 @@ services:
   cloud_webserver_v2:
     container_name: cloud_webserver_v2
     volumes:
-      - mps_data:/mps_data
+      - matlab_mps_data:/mps_data
       - run_metadata:/data/run_metadata
       - ./htmls:/app/files
       - ./logs:/app/logs
@@ -23,5 +23,5 @@ services:
 
 volumes:
   run_metadata:
-  mps_data:
+  matlab_mps_data:
     external: true
