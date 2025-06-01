@@ -34,7 +34,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./data_acq_cloud/cloud_webserver_v2
+          file: ./data_acq_cloud/cloud_webserver_v2/Dockerfile
           push: true
           tags: |
             ghcr.io/hytech-racing/data_acq_cloud:latest
