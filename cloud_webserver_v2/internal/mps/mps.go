@@ -22,7 +22,7 @@ const h5FileDirectory = "/data/run_metadata/"
 
 // mpsInstanceDirectory is the path of the MPS instance directory
 // /mps_data is the mount point of the mps_data Docker volume on this container
-const mpsInstanceDirectory = "/mps_data/mps_workspace/Instances/mps_4"
+const mpsInstanceDirectory = "/mps_data/mps_workspace/Instances/mps_2"
 
 // mpsJob represents a MATLAB job submitted to the MPS
 // It includes important information about the job
