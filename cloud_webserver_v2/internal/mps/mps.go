@@ -100,7 +100,7 @@ type matlabJobResult struct {
 // MpsScriptResult represents the schema of the returned result of a MATLAB script
 type MpsScriptResult struct {
 	// Type can be "mat", "image", or "text"
-	Type string `json:"type"`
+	Type models.MpsScriptResultType `json:"type"`
 
 	// If Type is "mat" or "image", Result will be a path to the file as a string
 	// If Type is "text"", Result will be the result as a string
