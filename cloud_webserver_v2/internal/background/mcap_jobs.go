@@ -254,14 +254,14 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 		initMessage["schema_list"] = mcapReader.SchemaList
 		initMessage["file_name"] = genericFileName
 		initMessage["file_path"] = job.FileDir
-		p.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
+		p.routeMessagesToSubscribers(publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
 
 		for {
 			schema, channel, message, err := message_iterator.NextInto(nil)
 
 			// Checks if we have no more messages to read from the MCAP. If so, it lets the subscribers know
 			if errors.Is(err, io.EOF) {
-				p.routeMessagesToSubscribers(ctx, publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
+				p.routeMessagesToSubscribers(publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
 				break
 			}
 
@@ -281,7 +281,7 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 				continue
 			}
 
-			p.routeMessagesToSubscribers(ctx, publisher, decodedMessage, &subscriber_names)
+			p.routeMessagesToSubscribers(publisher, decodedMessage, &subscriber_names)
 		}
 
 		// Need to make sure to close the subscribers or our code will hang and wait forever
@@ -295,7 +295,7 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 	return publisher.Results(), nil
 }
 
-func (p *PostProcessMCAPUploadJob) routeMessagesToSubscribers(ctx context.Context, publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
+func (p *PostProcessMCAPUploadJob) routeMessagesToSubscribers(publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
 	// List of all the workers we want to send the messages to
 	var subscriberNames []string
 	switch topic := decodedMessage.Topic; topic {
@@ -309,5 +309,5 @@ func (p *PostProcessMCAPUploadJob) routeMessagesToSubscribers(ctx context.Contex
 		subscriberNames = append(subscriberNames, messaging.MATLAB)
 	}
 
-	publisher.Publish(ctx, decodedMessage, subscriberNames)
+	publisher.Publish(decodedMessage, subscriberNames)
 }
