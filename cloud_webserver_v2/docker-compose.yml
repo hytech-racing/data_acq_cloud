@@ -2,23 +2,19 @@ services:
   cloud_webserver_v2:
     container_name: cloud_webserver_v2
     volumes:
+      - matlab_mps_data:/mps_data
       - run_metadata:/data/run_metadata
       - ./htmls:/app/files
       - ./logs:/app/logs
     build:
       context: .
-      args:
-        MONGODB_URI: ${MONGODB_URI}
-        AWS_REGION: ${AWS_REGION}
-        AWS_S3_RUN_BUCKET: ${AWS_S3_RUN_BUCKET}
-        AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT}
-        AWS_ACCESS_KEY: ${AWS_ACCESS_KEY}
-        AWS_SECRET_KEY: ${AWS_SECRET_KEY}
-        ENV: ${ENV}
-        MATLAB_URI: ${MATLAB_URI}
+    env_file: 
+      - .env
     ports:
       - "8080:8080"
     restart: unless-stopped
 
 volumes:
   run_metadata:
+  matlab_mps_data:
+    external: true

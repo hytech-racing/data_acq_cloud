@@ -55,13 +55,9 @@ func main() {
 	// load .env file
 	err := godotenv.Load(".env")
 	if err != nil {
-		log.Fatalf("Error loading .env file %s", err)
+		log.Println("No .env file found; continuing with environment variables.")
 	}
 	log.Println("Loaded .env file...")
-
-	mpsURI := os.Getenv("MATLAB_URI")
-	mpsClient := mps.NewMatlabClient(mpsURI)
-	mpsClient.PollForResults()
 
 	// Setup database our database connection
 	uri := os.Getenv("MONGODB_URI")
@@ -73,6 +69,10 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Println("Connected to database...")
+
+	// Setup MPS
+	mpsURI := os.Getenv("MATLAB_URI")
+	mpsClient := mps.NewMatlabClient(dbClient, mpsURI, 1*time.Second)
 
 	// Setup aws s3 connection
 	awsRegion := os.Getenv("AWS_REGION")

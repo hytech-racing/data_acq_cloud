@@ -2,21 +2,60 @@ package mps
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
+
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// h5FileDirectory is the directory where the .h5 files are stored locally, acts as s3 cache
+const h5FileDirectory = "/data/run_metadata/"
+
+// mpsInstanceDirectory is the path of the MPS instance directory
+// /mps_data is the mount point of the mps_data Docker volume on this container
+const mpsInstanceDirectory = "/mps_data/mps_workspace/Instances/mps_2"
+
+// mpsJob represents a MATLAB job submitted to the MPS
+// It includes important information about the job
+type mpsJob struct {
+	// ID of the MCAP associated with the job
+	mcapId primitive.ObjectID
+
+	// URL of the job status
+	jobId string
+
+	// Package version of the MATLAB function
+	packageVersion string
+
+	// Function name of the MATLAB function
+	functionName string
+}
+
+// MatlabClient is a client for the MATLAB Production Server (MPS)
+// It handles the submission of MATLAB jobs and processing of results
 type MatlabClient struct {
 	// URI of the MPS server
 	mpsBaseUrl string
 
 	// Contains the ids of all the jobs submitted and are being processed/queued
-	jobsProcessing []string
+	jobsProcessing []mpsJob
+	dbClient       *database.DatabaseClient
+
+	// Duration to wait between polling for job results
+	pollDuration time.Duration
 }
 
+// matlabJobState represents the state of a MATLAB job
+// View https://www.mathworks.com/help/mps/restfuljson/getstateinformation.html for more information
 type matlabJobState string
 
 const (
@@ -29,7 +68,7 @@ const (
 )
 
 // Represents HTTP response of an MPS async job request
-// https://www.mathworks.com/help/mps/restfuljson/postasynchronousrequest.html
+// View https://www.mathworks.com/help/mps/restfuljson/postasynchronousrequest.html for more information
 type matlabJobResponse struct {
 	// ID of a particular request
 	ID string `json:"id"`
@@ -51,11 +90,21 @@ type matlabJobResponse struct {
 }
 
 // Represents HTTP response of the result of a MPS job request
-// https://www.mathworks.com/help/mps/restfuljson/getresultofrequest.html
+// View https://www.mathworks.com/help/mps/restfuljson/getresultofrequest.html for more information
 type matlabJobResult struct {
 	// LHS resprents all the results calculated
-	// For our purposes, LHS will always be an array with 1 JSON string
-	LHS []string `json:"lhs"`
+	// For our purposes, LHS will always be an array with 1 MpsScriptResult
+	LHS []MpsScriptResult `json:"lhs"`
+}
+
+// MpsScriptResult represents the schema of the returned result of a MATLAB script
+type MpsScriptResult struct {
+	// Type can be "mat", "image", or "text"
+	Type models.MpsScriptResultType `json:"type"`
+
+	// If Type is "mat" or "image", Result will be a path to the file as a string
+	// If Type is "text"", Result will be the result as a string
+	Result string `json:"result"`
 }
 
 // Represents the HTTP request payload of an MPS async job request
@@ -76,6 +125,9 @@ type matlabJobRequestPayload struct {
 	} `json:"outputFormat"`
 }
 
+// Creates a new MATLAB job request payload
+// rhs represents the arguments passed into the function which should
+// always be a single string array which is the filepath to the h5 file
 func newMatlabJobRequestPayload(rhs []string) *matlabJobRequestPayload {
 	return &matlabJobRequestPayload{
 		Nargout: 1,
@@ -90,66 +142,70 @@ func newMatlabJobRequestPayload(rhs []string) *matlabJobRequestPayload {
 	}
 }
 
-func NewMatlabClient(mpsBaseUrl string) *MatlabClient {
+// Creates a new MATLAB client
+func NewMatlabClient(dbClient *database.DatabaseClient, mpsBaseUrl string, pollDuration time.Duration) *MatlabClient {
 	resp, err := http.Get(mpsBaseUrl + "/api/health")
 
 	if err != nil {
-		log.Panicf("mps client error connecting to %s: %v", mpsBaseUrl, err)
+		log.Printf("mps client error connecting to %s: %v", mpsBaseUrl, err)
 	}
 
 	if resp.StatusCode != 200 {
-		log.Panicf("mps client error connecting to %s: %v", mpsBaseUrl, err)
+		log.Printf("mps client error connecting to %s: %v", mpsBaseUrl, err)
 	}
 
 	log.Println("connected to mps")
 
 	return &MatlabClient{
 		mpsBaseUrl:     mpsBaseUrl,
-		jobsProcessing: []string{},
+		jobsProcessing: []mpsJob{},
+		dbClient:       dbClient,
+		pollDuration:   pollDuration,
 	}
 }
 
-// Enables the poll for result loop
-func (m *MatlabClient) PollForResults() {
-	go m.pollForResults()
-}
-
-func (m *MatlabClient) pollForResults() {
+// Polls the MPS for the result of a job until it is ready
+// Once it's ready, it processes the job result and then deletes it off MPS
+func (m *MatlabClient) pollForJobResult(mpsJob mpsJob, s3Repo *s3.S3Repository) {
 	for {
-		newJobsProcessing := []string{}
-		for _, job := range m.jobsProcessing {
-			resp, err := http.Get(m.mpsBaseUrl + job)
-			if err != nil {
-				log.Fatalf("error getting job status: %v", err)
-			}
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				log.Fatalf("error reading response body: %v", err)
-			}
-
-			var data matlabJobResponse
-			err = json.Unmarshal(body, &data)
-			if err != nil {
-				log.Fatalf("error unmarshalling response body: %v", err)
-			}
-
-			if data.State == READY {
-				m.processResult(job)
-				m.deleteMatlabJobResult(job)
-			} else {
-				newJobsProcessing = append(newJobsProcessing, job)
-			}
+		resp, err := http.Get(m.mpsBaseUrl + mpsJob.jobId)
+		if err != nil {
+			log.Fatalf("error getting job status: %v", err)
 		}
-		m.jobsProcessing = newJobsProcessing
-		time.Sleep(10 * time.Second)
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatalf("error reading response body: %v", err)
+		}
+
+		var data matlabJobResponse
+		err = json.Unmarshal(body, &data)
+		if err != nil {
+			log.Fatalf("error unmarshalling response body: %v", err)
+		}
+
+		if data.State == READY {
+			m.processResult(mpsJob, s3Repo)
+			m.deleteMatlabJobResult(mpsJob.jobId)
+			return
+		} else {
+			log.Println("job not ready yet, current state:", data.State)
+			time.Sleep(m.pollDuration)
+		}
+
+		// TODO: handle other states like errors
 	}
 }
 
-func (m *MatlabClient) processResult(jobId string) {
-	log.Printf("processing result for mps job: %s", jobId)
+// Helper function that contains the logic for processing script results from MPS
+// Stores the results properly into MongoDB and S3
+func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	resp, err := http.Get(m.mpsBaseUrl + jobId + "/result")
+	log.Printf("processing result for mps job: %s", job.jobId)
+
+	resp, err := http.Get(m.mpsBaseUrl + job.jobId + "/result")
 	if err != nil {
 		log.Fatalf("error getting job result: %v", err)
 	}
@@ -171,11 +227,95 @@ func (m *MatlabClient) processResult(jobId string) {
 		log.Fatalf("error unmarshalling response body: %v", err)
 	}
 
-	log.Printf("result for mps job %s: %s", jobId, data.LHS[0])
+	scriptResult := data.LHS[0]
+
+	// get current run information from database
+	runModel, err := m.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, job.mcapId)
+	if err != nil {
+		log.Fatalf("could not get vehicle run by id %v, %v", job.mcapId, err)
+	}
+
+	// update the model
+	result := scriptResult.Result
+
+	switch scriptResult.Type {
+	case "mat", "image":
+		// scriptResult.Result = /data/mps_generated/file_name.mat
+		mpsGeneratedFileLocation := mpsInstanceDirectory + scriptResult.Result
+
+		// ensure generated file exists
+		if _, err := os.Stat(mpsGeneratedFileLocation); os.IsNotExist(err) {
+			log.Fatalf("generated file does not exist: %s", mpsGeneratedFileLocation)
+		}
+
+		// copy the generated file to the local s3 cache directory
+		s3FilePath := job.mcapId.Hex() + "/" + job.packageVersion + "/" + job.functionName + "/" + filepath.Base(scriptResult.Result)
+		s3CacheFileLocation := h5FileDirectory + s3FilePath
+		err = os.MkdirAll(filepath.Dir(s3CacheFileLocation), 0755)
+		if err != nil {
+			log.Fatalf("error creating local directory for file %s: %v", s3CacheFileLocation, err)
+		}
+
+		srcFile, err := os.Open(mpsGeneratedFileLocation)
+		if err != nil {
+			log.Fatalf("failed to open generated file %s: %v", mpsGeneratedFileLocation, err)
+		}
+		defer srcFile.Close()
+
+		destFile, err := os.Create(s3CacheFileLocation)
+		if err != nil {
+			log.Fatalf("failed to create destination file %s: %v", s3CacheFileLocation, err)
+		}
+		defer destFile.Close()
+
+		_, err = io.Copy(destFile, srcFile)
+		if err != nil {
+			log.Fatalf("failed to copy file from %s to %s: %v", mpsGeneratedFileLocation, s3CacheFileLocation, err)
+		}
+
+		// delete the generated file from the MPS instance directory
+		err = os.Remove(mpsGeneratedFileLocation)
+		if err != nil {
+			log.Fatalf("failed to delete generated file %s: %v", mpsGeneratedFileLocation, err)
+		}
+
+		// save the file to S3
+		err = s3Repo.WriteObjectReader(ctx, srcFile, s3FilePath)
+		if err != nil {
+			log.Fatalf("error writing file to s3: %v", err)
+		}
+
+		result = s3FilePath
+
+		fallthrough
+	default:
+		if runModel.MpsRecord == nil {
+			runModel.MpsRecord = make(models.MpsRecordModel)
+		}
+
+		if runModel.MpsRecord[job.packageVersion] == nil {
+			runModel.MpsRecord[job.packageVersion] = make(models.MpsScriptModel)
+		}
+
+		runModel.MpsRecord[job.packageVersion][job.functionName] = models.MpsScriptResultModel{
+			Type:   scriptResult.Type,
+			Result: result,
+		}
+	}
+
+	// update the vehicle run in the database
+	err = m.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, job.mcapId, runModel)
+	if err != nil {
+		log.Fatalf("could not update vehicle run %v, %v", job.mcapId, err)
+	}
+
+	cancel()
+
+	log.Printf("saved result for mps job into mongodb %s: %s", job.jobId, data.LHS[0])
 }
 
 // Removes the job as well as the job result from the MPS.
-// https://www.mathworks.com/help/mps/restfuljson/deleterequest.html
+// View https://www.mathworks.com/help/mps/restfuljson/deleterequest.html for more information
 func (m *MatlabClient) deleteMatlabJobResult(jobId string) {
 	req, err := http.NewRequest("DELETE", m.mpsBaseUrl+jobId, nil)
 
@@ -200,10 +340,31 @@ func (m *MatlabClient) deleteMatlabJobResult(jobId string) {
 
 // Submits a new synchronous job to the MPS.
 // The MPS client will save the job id and wait for the result and process it in the background
-// https://www.mathworks.com/help/mps/restfuljson/postasynchronousrequest.html
-func (m *MatlabClient) SubmitMatlabJob(h5FileName string, packageName string, functionName string) {
+// View https://www.mathworks.com/help/mps/restfuljson/postasynchronousrequest.html for more information
+func (m *MatlabClient) SubmitMatlabJob(ctx context.Context, s3Repo *s3.S3Repository, mcapId string, packageName string, functionName string) {
 	log.Println("submitting matlab job")
-	payload := newMatlabJobRequestPayload([]string{"/home/hytech/" + h5FileName})
+
+	primitiveId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		log.Fatalf("error converting mcapId to primitive.ObjectID: %v", err)
+	}
+
+	model, err := m.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, primitiveId)
+	if err != nil {
+		log.Fatalf("error getting vehicle run model: %v", err)
+	}
+
+	// ensure that the .h5 file exists on file system in h5FileDirectory
+	h5FilePath := model.MatFiles[0].FilePath
+	localFilePath := h5FileDirectory + h5FilePath
+	if _, err := os.Stat(localFilePath); os.IsNotExist(err) {
+		err = s3Repo.DownloadObject(ctx, model.MatFiles[0].AwsBucket, h5FilePath, localFilePath)
+		if err != nil {
+			log.Fatalf("error downloading file from s3: %v", err)
+		}
+	}
+
+	payload := newMatlabJobRequestPayload([]string{h5FileDirectory + h5FilePath})
 	payloadJson, err := json.Marshal(payload)
 	if err != nil {
 		log.Fatalf("error marshalling payload: %v", err)
@@ -229,7 +390,13 @@ func (m *MatlabClient) SubmitMatlabJob(h5FileName string, packageName string, fu
 		log.Fatalf("error unmarshalling response body: %v", err)
 	}
 
-	m.jobsProcessing = append(m.jobsProcessing, data.Self)
+	// spawn go routine to poll for result
+	go m.pollForJobResult(mpsJob{
+		mcapId:         primitiveId,
+		jobId:          data.Self,
+		packageVersion: packageName,
+		functionName:   functionName,
+	}, s3Repo)
 
 	log.Printf("matlab job submitted, %s", data.Self)
 }
