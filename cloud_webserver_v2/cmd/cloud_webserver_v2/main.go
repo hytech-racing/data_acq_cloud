@@ -18,7 +18,7 @@ import (
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/logging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/mps"
+	// "github.com/hytech-racing/cloud-webserver-v2/internal/mps"
 	proto_sync "github.com/hytech-racing/cloud-webserver-v2/internal/proto_sync"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
@@ -71,8 +71,8 @@ func main() {
 	log.Println("Connected to database...")
 
 	// Setup MPS
-	mpsURI := os.Getenv("MATLAB_URI")
-	mpsClient := mps.NewMatlabClient(dbClient, mpsURI, 1*time.Second)
+	// mpsURI := os.Getenv("MATLAB_URI")
+	// mpsClient := mps.NewMatlabClient(dbClient, mpsURI, 1*time.Second)
 
 	// Setup aws s3 connection
 	awsRegion := os.Getenv("AWS_REGION")
@@ -154,7 +154,7 @@ func main() {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, mpsClient)
+	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, nil)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
