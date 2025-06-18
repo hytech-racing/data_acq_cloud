@@ -280,7 +280,7 @@ func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
 		}
 
 		// save the file to S3
-		err = s3Repo.WriteObjectReader(ctx, srcFile, s3FilePath)
+		err = s3Repo.WriteObjectReader(ctx, destFile, s3FilePath)
 		if err != nil {
 			log.Fatalf("error writing file to s3: %v", err)
 		}
@@ -308,8 +308,6 @@ func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
 	if err != nil {
 		log.Fatalf("could not update vehicle run %v, %v", job.mcapId, err)
 	}
-
-	cancel()
 
 	log.Printf("saved result for mps job into mongodb %s: %s", job.jobId, data.LHS[0])
 }

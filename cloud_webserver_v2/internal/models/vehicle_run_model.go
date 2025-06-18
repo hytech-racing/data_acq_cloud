@@ -86,8 +86,9 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 		Location:       model.Location,
 		EventType:      model.EventType,
 		DynamicFields:  model.DynamicFields,
-		MpsRecord:      model.MpsRecord,
 	}
+
+	modelOut.MpsRecord = serializeMPSRecord(ctx, s3Repo, model.MpsRecord)
 
 	if model.McapFiles != nil && len(model.McapFiles) > 0 {
 		fileResponses := getFileModelResponse(ctx, s3Repo, model.McapFiles)
@@ -108,6 +109,22 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 	}
 
 	return modelOut
+}
+
+func serializeMPSRecord(ctx context.Context, s3Repo *s3.S3Repository, mpsRecord MpsRecordModel) MpsRecordModel {
+	s3Bucket := s3Repo.Bucket()
+	for packageName, scripts := range mpsRecord {
+		for scriptName, result := range scripts {
+			if result.Type == Mat || result.Type == Image {
+				signedUrl := s3Repo.GetSignedUrl(ctx, s3Bucket, result.Result)
+				result.Result = signedUrl
+			}
+			scripts[scriptName] = result
+		}
+		mpsRecord[packageName] = scripts
+	}
+
+	return mpsRecord
 }
 
 func getFileModelResponse(ctx context.Context, s3Repo *s3.S3Repository, files []FileModel) []FileModelResponse {
