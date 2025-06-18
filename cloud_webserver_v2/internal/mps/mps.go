@@ -94,7 +94,9 @@ type matlabJobResponse struct {
 type matlabJobResult struct {
 	// LHS resprents all the results calculated
 	// For our purposes, LHS will always be an array with 1 MpsScriptResult
-	LHS []MpsScriptResult `json:"lhs"`
+	LHS []MpsScriptResult `json:"lhs,omitempty"`
+
+	Error json.RawMessage `json:"error,omitempty"`
 }
 
 // MpsScriptResult represents the schema of the returned result of a MATLAB script
@@ -227,17 +229,44 @@ func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
 		log.Fatalf("error unmarshalling response body: %v", err)
 	}
 
-	scriptResult := data.LHS[0]
-
 	// get current run information from database
 	runModel, err := m.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, job.mcapId)
 	if err != nil {
 		log.Fatalf("could not get vehicle run by id %v, %v", job.mcapId, err)
 	}
 
-	// update the model
+	// check if mps_record field exists, create the right keys if not
+	if runModel.MpsRecord == nil {
+		runModel.MpsRecord = make(models.MpsRecordModel)
+	}
+
+	if runModel.MpsRecord[job.packageVersion] == nil {
+		runModel.MpsRecord[job.packageVersion] = make(models.MpsScriptModel)
+	}
+
+	// check if the script returned an error
+	if len(data.Error) > 0 {
+		// update the model
+		runModel.MpsRecord[job.packageVersion][job.functionName] = models.MpsScriptResultModel{
+			Type:   "text",
+			Result: "error",
+		}
+
+		// update the vehicle run in the database
+		err = m.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, job.mcapId, runModel)
+		if err != nil {
+			log.Fatalf("could not update vehicle run %v, %v", job.mcapId, err)
+		}
+
+		log.Printf("saved result for mps job into mongodb %s: script errored", job.jobId)
+		return
+	}
+
+	// get result from script
+	scriptResult := data.LHS[0]
 	result := scriptResult.Result
 
+	// update the model
 	switch scriptResult.Type {
 	case "mat", "image":
 		// scriptResult.Result = /data/mps_generated/file_name.mat
@@ -315,7 +344,7 @@ func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
 		log.Fatalf("could not update vehicle run %v, %v", job.mcapId, err)
 	}
 
-	log.Printf("saved result for mps job into mongodb %s: %s", job.jobId, data.LHS[0])
+	log.Printf("saved result for mps job into mongodb %s: %s", job.jobId, scriptResult)
 }
 
 // Removes the job as well as the job result from the MPS.
@@ -364,7 +393,7 @@ func (m *MatlabClient) SubmitMatlabJob(ctx context.Context, s3Repo *s3.S3Reposit
 	if _, err := os.Stat(localFilePath); os.IsNotExist(err) {
 		err = s3Repo.DownloadObject(ctx, model.MatFiles[0].AwsBucket, h5FilePath, localFilePath)
 		if err != nil {
-			log.Fatalf("error downloading file from s3: %v", err)
+			log.Printf("error downloading file from s3: %v", err)
 		}
 	}
 
