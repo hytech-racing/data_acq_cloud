@@ -279,6 +279,12 @@ func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
 			log.Fatalf("failed to delete generated file %s: %v", mpsGeneratedFileLocation, err)
 		}
 
+		// rewind file before uploading to S3
+		_, err = destFile.Seek(0, io.SeekStart)
+		if err != nil {
+			log.Fatalf("failed to seek to beginning of file: %v", err)
+		}
+
 		// save the file to S3
 		err = s3Repo.WriteObjectReader(ctx, destFile, s3FilePath)
 		if err != nil {
