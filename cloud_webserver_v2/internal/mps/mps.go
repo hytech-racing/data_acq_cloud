@@ -202,7 +202,7 @@ func (m *MatlabClient) pollForJobResult(mpsJob mpsJob, s3Repo *s3.S3Repository) 
 // Helper function that contains the logic for processing script results from MPS
 // Stores the results properly into MongoDB and S3
 func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	log.Printf("processing result for mps job: %s", job.jobId)
