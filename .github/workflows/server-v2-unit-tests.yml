@@ -2,16 +2,7 @@ name: Run Go Unit Tests
 
 on:
   push:
-    paths:
-      - 'cloud_webserver_v2/**.go'
-      - 'cloud_webserver_v2/go.mod'
-      - 'cloud_webserver_v2/go.sum'
-      - '.github/workflows/unit-tests.yml'
   pull_request:
-    paths:
-      - 'cloud_webserver_v2/**.go'
-      - 'cloud_webserver_v2/go.mod'
-      - 'cloud_webserver_v2/go.sum'
   workflow_dispatch:  # Enables manual trigger
 
 jobs:
