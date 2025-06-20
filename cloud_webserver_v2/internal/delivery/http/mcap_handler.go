@@ -59,7 +59,7 @@ func NewMcapHandler(
 		r.Get("/", handler.GetMcapsFromFilters)
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
 		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
-		// r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
+		r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
 	})

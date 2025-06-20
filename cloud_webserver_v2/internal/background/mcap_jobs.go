@@ -2,11 +2,15 @@ package background
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
@@ -14,6 +18,14 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+type DiscoveryResponse struct {
+	Archives map[string]struct {
+		Functions map[string]interface{} `json:"functions"`
+	} `json:"archives"`
+}
+
+var discoveryURL = "https://mps.hytechracing.duckdns.org/api/discovery"
 
 // PostProcessMCAPUploadJob handles the post processing of MCAP files.
 // PostProcessMCAPUploadJob serves as a wrapper struct to hold the Process function
@@ -201,6 +213,57 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	fp.MiddlewareEstimatedSize.Add(-job.Size)
 	fp.updateJobStatus(job, StatusCompleted)
 	fp.setCurrentlyProcessing(false)
+
+	// now run all the matlab scripts on the mcap
+	// TODO: find a better place to put this
+	// Hit the discovery endpoint
+	resp, err := http.Get(discoveryURL)
+	if err != nil {
+		log.Fatalf("Error fetching discovery data: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalf("Error reading response: %v", err)
+	}
+
+	var discovery DiscoveryResponse
+	err = json.Unmarshal(body, &discovery)
+	if err != nil {
+		log.Fatalf("Error parsing JSON: %v", err)
+	}
+
+	// Get latest version (sorted lexically, e.g., v18 > v17)
+	var versions []string
+	for version := range discovery.Archives {
+		versions = append(versions, version)
+	}
+	sort.Strings(versions)
+	latestVersion := versions[len(versions)-1]
+
+	// Extract function names
+	functions := discovery.Archives[latestVersion].Functions
+	var scriptNames []string
+	for fnName := range functions {
+		scriptNames = append(scriptNames, fnName)
+	}
+	scriptsParam := strings.Join(scriptNames, ",")
+
+	// Send request to process endpoint
+	finalURL := fmt.Sprintf("http://localhost:8080/api/v2/mcaps/%s/process?scripts=%s&version=%s", recordId.Hex(), scriptsParam, latestVersion)
+	fmt.Printf("Sending request to: %s\n", finalURL)
+
+	processResp, err := http.Get(finalURL)
+	if err != nil {
+		log.Fatalf("Error sending process request: %v", err)
+	}
+	defer processResp.Body.Close()
+
+	_, err = io.ReadAll(processResp.Body)
+	if err != nil {
+		log.Fatalf("Error reading process response: %v", err)
+	}
 
 	log.Printf("Completed job %v", job.ID)
 	return nil
