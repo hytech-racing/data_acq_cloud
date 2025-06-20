@@ -159,7 +159,7 @@ func PlotTimeVelocity(id int, subscriberName string, ch <-chan SubscribedMessage
 
 			decodedFL := veh_vec_floatDynamicMessage.GetField(fl_Descriptor)
 			decodedFR := veh_vec_floatDynamicMessage.GetField(fr_Descriptor)
-			if decodedFL == nil || decodedFL == nil {
+			if decodedFL == nil {
 				continue
 			}
 

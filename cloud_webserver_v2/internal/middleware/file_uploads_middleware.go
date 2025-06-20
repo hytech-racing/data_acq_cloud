@@ -21,6 +21,8 @@ func (fp *FileUploadMiddleware) FileUploadSizeLimitMiddleware(next http.Handler)
 
 		currentSize := fp.FileProcessor.MiddlewareEstimatedSize.Load()
 		maxTotalSize := fp.FileProcessor.MaxTotalSize()
+		fmt.Println(currentSize + contentLength)
+		fmt.Println(maxTotalSize)
 		if currentSize+contentLength > maxTotalSize {
 			http.Error(w, fmt.Sprintf(
 				"Upload would exceed size limit. Current: %d bytes, Max: %d bytes",

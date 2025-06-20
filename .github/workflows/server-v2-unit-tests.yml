@@ -1,0 +1,38 @@
+name: Run Go Unit Tests
+
+on:
+  push:
+    paths:
+      - 'cloud_webserver_v2/**.go'
+      - 'cloud_webserver_v2/go.mod'
+      - 'cloud_webserver_v2/go.sum'
+      - '.github/workflows/unit-tests.yml'
+  pull_request:
+    paths:
+      - 'cloud_webserver_v2/**.go'
+      - 'cloud_webserver_v2/go.mod'
+      - 'cloud_webserver_v2/go.sum'
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: cloud_webserver_v2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'cloud_webserver_v2/go.mod'
+
+      - name: Download dependencies
+        run: go mod tidy
+
+      - name: Run unit tests
+        run: go test ./... -v

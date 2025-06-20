@@ -147,7 +147,6 @@ func newMatlabJobRequestPayload(rhs []string) *matlabJobRequestPayload {
 // Creates a new MATLAB client
 func NewMatlabClient(dbClient *database.DatabaseClient, mpsBaseUrl string, pollDuration time.Duration) *MatlabClient {
 	resp, err := http.Get(mpsBaseUrl + "/api/health")
-
 	if err != nil {
 		log.Printf("mps client error connecting to %s: %v", mpsBaseUrl, err)
 	}
@@ -280,7 +279,7 @@ func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
 		// copy the generated file to the local s3 cache directory
 		s3FilePath := job.mcapId.Hex() + "/" + job.packageVersion + "/" + job.functionName + "/" + filepath.Base(scriptResult.Result)
 		s3CacheFileLocation := h5FileDirectory + s3FilePath
-		err = os.MkdirAll(filepath.Dir(s3CacheFileLocation), 0755)
+		err = os.MkdirAll(filepath.Dir(s3CacheFileLocation), 0o755)
 		if err != nil {
 			log.Fatalf("error creating local directory for file %s: %v", s3CacheFileLocation, err)
 		}
@@ -351,13 +350,11 @@ func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
 // View https://www.mathworks.com/help/mps/restfuljson/deleterequest.html for more information
 func (m *MatlabClient) deleteMatlabJobResult(jobId string) {
 	req, err := http.NewRequest("DELETE", m.mpsBaseUrl+jobId, nil)
-
 	if err != nil {
 		log.Fatalf("error creating http delete request: %v", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
-
 	if err != nil {
 		log.Fatalf("error deleting mps job result: %v", err)
 	}
@@ -404,7 +401,6 @@ func (m *MatlabClient) SubmitMatlabJob(ctx context.Context, s3Repo *s3.S3Reposit
 	}
 
 	r, err := http.Post(m.mpsBaseUrl+"/"+packageName+"/"+functionName+"?mode=async", "application/json", bytes.NewBuffer(payloadJson))
-
 	if err != nil {
 		log.Fatalf("error submitting matlab file: %v", err)
 	}
@@ -418,7 +414,6 @@ func (m *MatlabClient) SubmitMatlabJob(ctx context.Context, s3Repo *s3.S3Reposit
 
 	var data matlabJobResponse
 	err = json.Unmarshal(body, &data)
-
 	if err != nil {
 		log.Fatalf("error unmarshalling response body: %v", err)
 	}
