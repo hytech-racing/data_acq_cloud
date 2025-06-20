@@ -301,6 +301,11 @@ func (m *MatlabClient) processResult(job mpsJob, s3Repo *s3.S3Repository) {
 			log.Fatalf("failed to copy file from %s to %s: %v", mpsGeneratedFileLocation, s3CacheFileLocation, err)
 		}
 
+		err = os.Chmod(filepath.Dir(destFile.Name()), 0555) // dr-xr-xr-x
+		if err != nil {
+			log.Fatalf("Failed to change permissions: %v", err)
+		}
+
 		err = os.Chmod(destFile.Name(), 0444)
 		if err != nil {
 			log.Fatalf("Failed to change permissions: %v", err)
