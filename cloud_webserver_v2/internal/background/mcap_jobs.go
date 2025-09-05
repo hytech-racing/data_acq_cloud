@@ -23,8 +23,8 @@ type PostProcessMCAPUploadJob struct{}
 // Process reads MCAPs and sends the messages to multiple subscribers which
 // handle operations like creating HDF5 files and generating graphs.
 // It also saves all this information to the database and stores files on S3.
-func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) error {
-	ctx := context.TODO()
+func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJob) error {
+	ctx := context.Background()
 	fp.setCurrentlyProcessing(true)
 	fp.updateJobStatus(job, StatusProcessing)
 
@@ -237,7 +237,7 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 	subscriberMapping[messaging.VELOCITY] = messaging.PlotTimeVelocity
 	subscriberMapping[messaging.MATLAB] = messaging.CreateRawMatlabFile
 
-	publisher := messaging.NewPublisher(true)
+	publisher := messaging.NewPublisher().WithRouter(routeMCAPDecodedMessage).WithResultsListener()
 	subscriber_names := make([]string, len(subscriberMapping))
 	idx := 0
 	for subscriber_name, function := range subscriberMapping {
@@ -254,14 +254,14 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 		initMessage["schema_list"] = mcapReader.SchemaList
 		initMessage["file_name"] = genericFileName
 		initMessage["file_path"] = job.FileDir
-		p.routeMessagesToSubscribers(publisher, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage}, &subscriber_names)
+		publisher.Publish(ctx, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage})
 
 		for {
 			schema, channel, message, err := message_iterator.NextInto(nil)
 
 			// Checks if we have no more messages to read from the MCAP. If so, it lets the subscribers know
 			if errors.Is(err, io.EOF) {
-				p.routeMessagesToSubscribers(publisher, &utils.DecodedMessage{Topic: messaging.EOF}, &subscriber_names)
+				publisher.Publish(ctx, &utils.DecodedMessage{Topic: messaging.EOF, Data: initMessage})
 				break
 			}
 
@@ -281,7 +281,7 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 				continue
 			}
 
-			p.routeMessagesToSubscribers(publisher, decodedMessage, &subscriber_names)
+			publisher.Publish(ctx, decodedMessage)
 		}
 
 		// Need to make sure to close the subscribers or our code will hang and wait forever
@@ -295,12 +295,12 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 	return publisher.Results(), nil
 }
 
-func (p *PostProcessMCAPUploadJob) routeMessagesToSubscribers(publisher *messaging.Publisher, decodedMessage *utils.DecodedMessage, allNames *[]string) {
+func routeMCAPDecodedMessage(ctx context.Context, decodedMessage *utils.DecodedMessage, possibleRoutes []string) []string {
 	// List of all the workers we want to send the messages to
 	var subscriberNames []string
 	switch topic := decodedMessage.Topic; topic {
 	case messaging.EOF:
-		subscriberNames = append(subscriberNames, *allNames...)
+		subscriberNames = append(subscriberNames, possibleRoutes...)
 	case "hytech_msgs.VNData":
 		subscriberNames = append(subscriberNames, messaging.LATLON, messaging.MATLAB)
 	case "hytech_msgs.VehicleData":
@@ -309,5 +309,5 @@ func (p *PostProcessMCAPUploadJob) routeMessagesToSubscribers(publisher *messagi
 		subscriberNames = append(subscriberNames, messaging.MATLAB)
 	}
 
-	publisher.Publish(decodedMessage, subscriberNames)
+	return subscriberNames
 }
