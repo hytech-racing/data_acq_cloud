@@ -29,7 +29,7 @@ const (
 // The Process function contains logic to execute a FileJob.
 // A job uses the Process function to perform its task.
 type FileJobProcessor interface {
-	Process(fp *FileProcessor, job *FileJob) error
+	ProcessFileJob(fp *FileProcessor, job *FileJob) error
 }
 
 // A FileProcessor handles FileJobs in a queue manner.
@@ -213,7 +213,7 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 		case <-fp.stopChan:
 			return
 		case job := <-fp.fileQueueChan:
-			if err := job.Processor.Process(fp, job); err != nil {
+			if err := job.Processor.ProcessFileJob(fp, job); err != nil {
 				log.Printf("Failed to process file %s: %v", job.Filename, err)
 				fp.updateJobStatus(job, StatusFailed)
 				// TODO: Add job status to database
@@ -227,6 +227,7 @@ func (fp *FileProcessor) updateJobStatus(job *FileJob, status string) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
 
+	log.Printf("Updating job %s status to %s", job.ID, status)
 	job.Status = status
 	job.UpdatedAt = time.Now()
 }
@@ -235,6 +236,7 @@ func (fp *FileProcessor) updateJobStatus(job *FileJob, status string) {
 func (fp *FileProcessor) setCurrentlyProcessing(flag bool) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
+	log.Printf("Updating file processor currently processing to %v", flag)
 	fp.activelyProcessing = flag
 }
 

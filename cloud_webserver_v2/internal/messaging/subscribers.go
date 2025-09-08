@@ -248,6 +248,7 @@ func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMess
 	var filePath string
 	for msg := range ch {
 		if msg.GetContent().Topic == EOF {
+			break
 		} else if msg.GetContent().Topic == INIT {
 			if name, exists := msg.GetContent().Data["file_name"]; exists {
 				fileName = name.(string)
