@@ -147,11 +147,15 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		return fmt.Errorf("failed to remove processed mcapFile: %w", err)
 	}
 
+	// Create file hash
+	fileHash, err := CreateFileHash(mcapFileS3Reader)
+
 	// Create the models to upload into the database
 	mcapFileEntry := models.FileModel{
 		AwsBucket: fp.s3Repository.Bucket(),
 		FilePath:  mcapObjectFilePath,
 		FileName:  mcapFileName,
+		FileHash:  fileHash,
 	}
 	mcapFiles := make([]models.FileModel, 1)
 	mcapFiles[0] = mcapFileEntry
@@ -169,6 +173,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		AwsBucket: fp.s3Repository.Bucket(),
 		FilePath:  vnLatLonPlotFileObjectPath,
 		FileName:  vnLatLonPlotName,
+		FileHash:  fileHash,
 	}
 	vnPlotFiles := []models.FileModel{vnPlotFileEntry}
 	contentFiles["vn_lat_lon_plot"] = vnPlotFiles

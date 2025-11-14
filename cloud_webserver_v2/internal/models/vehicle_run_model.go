@@ -13,6 +13,7 @@ type FileModel struct {
 	AwsBucket string `bson:"aws_bucket"`
 	FilePath  string `bson:"file_path"`
 	FileName  string `bson:"file_name"`
+	FileHash  string `bson:"file_hash,omitempty"`
 }
 
 // FileModel contains the information for a serialized response of a file (object) stored on S3
