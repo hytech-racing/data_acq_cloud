@@ -29,7 +29,7 @@ func (uc *VehicleRunUseCase) CreateVehicleRun(ctx context.Context, model *models
 
 func (uc *VehicleRunUseCase) FindVehicleRunByMCAPFileHash(ctx context.Context, fileHash string) ([]models.VehicleRunModel, error) {
 	filters := bson.M{
-		"mcap_files.file_hash": "6805cb63ca239cded7a0e6a3/2024-07-05_18-33-36_rec.mcap",
+		"mcap_files.file_hash": fileHash,
 	}
 
 	result, err := uc.vechicleRunRepo.GetWithVehicleFilters(ctx, &filters)
