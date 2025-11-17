@@ -2,8 +2,6 @@ package background
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -265,17 +263,4 @@ func (fp *FileProcessor) syncTotalSize() {
 		time.Sleep(1 * time.Minute)
 		fp.MiddlewareEstimatedSize.CompareAndSwap(fp.MiddlewareEstimatedSize.Load(), fp.TotalSize.Load())
 	}
-}
-
-// Creates file hash
-func CreateFileHash(file *os.File) (fileHash string, err error) {
-	if _, err := file.Seek(0, 0); err != nil {
-		return "", err
-	}
-
-	h := sha256.New()
-	if _, err := io.Copy(h, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }

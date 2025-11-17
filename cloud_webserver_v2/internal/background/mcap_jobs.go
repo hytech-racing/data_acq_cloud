@@ -148,7 +148,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	}
 
 	// Create file hash
-	fileHash, err := CreateFileHash(mcapFileS3Reader)
+	fileHash, err := utils.CreateFileHash(mcapFileS3Reader)
 
 	// Create the models to upload into the database
 	mcapFileEntry := models.FileModel{
