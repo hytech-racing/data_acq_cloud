@@ -58,12 +58,16 @@ func NewMcapHandler(
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
 		r.Get("/", handler.GetMcapsFromFilters)
+
+		// static routes
+		r.Get("/status", HandlerFunc(handler.CheckFileStatus).ServeHTTP)
+
+		// parameterized routes
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
 		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
 		r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
-		r.Get("/status", HandlerFunc(handler.CheckFileStatus).ServeHTTP)
 	})
 }
 
@@ -142,6 +146,7 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 
 // GetMcapFromID takes in an ID from a URL param and responds with an MCAP with that ID.
 func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
+
 	ctx := r.Context()
 
 	mcapId := chi.URLParam(r, "id")
