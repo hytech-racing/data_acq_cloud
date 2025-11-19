@@ -1,7 +1,6 @@
 package http
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -453,7 +452,7 @@ func (h *mcapHandler) CheckFileStatus(w http.ResponseWriter, r *http.Request) *H
 		return NewHandlerError("file_hash must not be empty", http.StatusBadRequest)
 
 	}
-	vehicle_runs, err := h.dbClient.VehicleRunUseCase().FindVehicleRunByMCAPFileHash(context.TODO(), fileHash)
+	vehicle_runs, err := h.dbClient.VehicleRunUseCase().FindVehicleRunByMCAPFileHash(r.Context(), fileHash)
 	if err != nil {
 		return NewHandlerError(
 			fmt.Sprintf("error checking file status for %q: %v", fileHash, err),
