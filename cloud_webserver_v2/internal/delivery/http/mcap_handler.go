@@ -28,7 +28,7 @@ import (
    - [ ] Once interpolation logic is fixed, write an interpolated MCAP file with the data.
 */
 
-// mcapHandler handles all requests related to MCAP data (uploads, deleions, edits, reading).
+// mcapHandler handles all requests related to MCAP data (uploads, deletions, edits, reading).
 type mcapHandler struct {
 	s3Repository  *s3.S3Repository
 	dbClient      *database.DatabaseClient
@@ -56,9 +56,9 @@ func NewMcapHandler(
 		// It limits the amount of uploads we accept to a pre-set limit
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
-		r.Get("/", handler.GetMcapsFromFilters)
 
 		// static routes
+		r.Get("/", handler.GetMcapsFromFilters)
 		r.Get("/status", HandlerFunc(handler.CheckFileStatus).ServeHTTP)
 
 		// parameterized routes
@@ -145,7 +145,6 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 
 // GetMcapFromID takes in an ID from a URL param and responds with an MCAP with that ID.
 func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
-
 	ctx := r.Context()
 
 	mcapId := chi.URLParam(r, "id")
