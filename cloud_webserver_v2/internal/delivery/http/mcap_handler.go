@@ -67,31 +67,31 @@ func NewMcapHandler(
 	})
 }
 
-// Retrieves misc files uploaded from request, calls S3 usecase to update S3, & calls vehicle run usecase to 
+// Retrieves misc files uploaded from request, calls S3 usecase to update S3, & calls vehicle run usecase to
 // update MongoDB
 func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(32 << 20) 
-    if err != nil {
-        http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
-        return
-    }
+	err := r.ParseMultipartForm(32 << 20)
+	if err != nil {
+		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
+		return
+	}
 	file, header, err := r.FormFile("file")
-    if err != nil {
-        http.Error(w, "Could not read file from request", http.StatusBadRequest)
-        return
-    }
-    defer file.Close()
-	
+	if err != nil {
+		http.Error(w, "Could not read file from request", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
 	idStr := chi.URLParam(r, "id")
-    vehicleRunID, err := primitive.ObjectIDFromHex(idStr)
-    if err != nil {
-        http.Error(w, "Invalid vehicle run ID", http.StatusBadRequest)
-        return
-    }
-	
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second) 
+	vehicleRunID, err := primitive.ObjectIDFromHex(idStr)
+	if err != nil {
+		http.Error(w, "Invalid vehicle run ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	s3Key := fmt.Sprintf("%s/%s", vehicleRunID.Hex(), header.Filename) 
+	s3Key := fmt.Sprintf("%s/%s", vehicleRunID.Hex(), header.Filename)
 	err = h.s3Repository.WriteObjectReader(ctx, file, s3Key)
 	if err != nil {
 		http.Error(w, "Failed to upload to S3: "+err.Error(), http.StatusInternalServerError)
@@ -99,15 +99,15 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	vehicleRun, err := h.dbClient.VehicleRunUseCase().AddMiscFile(ctx, vehicleRunID, h.s3Repository.Bucket(), header.Filename, s3Key)
-    if err != nil {
-        http.Error(w, "Failed to save misc file to vehicle run: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
+	if err != nil {
+		http.Error(w, "Failed to save misc file to vehicle run: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	response := map[string]interface{}{
-        "message": "Misc file uploaded successfully",
-        "data":    vehicleRun,
-    }
-    render.JSON(w, r, response)
+		"message": "Misc file uploaded successfully",
+		"data":    vehicleRun,
+	}
+	render.JSON(w, r, response)
 }
 
 // GetMcapsFromFilters takes in filters through Query parameters and will respond with a

@@ -118,21 +118,19 @@ func (uc *VehicleRunUseCase) UpdateVehicleRun(ctx context.Context, id primitive.
 }
 
 func (uc *VehicleRunUseCase) AddMiscFile(ctx context.Context, vehicleRunID primitive.ObjectID, awsBucket string, fileName string, filePath string) (*models.VehicleRunModel, error) {
-    vehicleRun, err := uc.vechicleRunRepo.GetVehicleRunFromId(ctx, vehicleRunID)
-    if err != nil {
-        return nil, err
-    }
+	vehicleRun, err := uc.vechicleRunRepo.GetVehicleRunFromId(ctx, vehicleRunID)
+	if err != nil {
+		return nil, err
+	}
 	miscFile := models.FileModel{
 		AwsBucket: awsBucket,
 		FilePath:  filePath,
 		FileName:  fileName,
 	}
-    vehicleRun.MiscFiles = append(vehicleRun.MiscFiles, miscFile)
-    err = uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, vehicleRunID, vehicleRun)
-    if err != nil {
-        return nil, err
-    }
-    return vehicleRun, nil
+	vehicleRun.MiscFiles = append(vehicleRun.MiscFiles, miscFile)
+	err = uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, vehicleRunID, vehicleRun)
+	if err != nil {
+		return nil, err
+	}
+	return vehicleRun, nil
 }
-
-
