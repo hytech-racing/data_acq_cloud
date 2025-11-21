@@ -30,7 +30,7 @@ func (uc *VehicleRunUseCase) CreateVehicleRun(ctx context.Context, model *models
 
 func (uc *VehicleRunUseCase) FindVehicleRunByMCAPFileHash(ctx context.Context, fileHash string) ([]models.VehicleRunModel, error) {
 	filters := bson.M{
-		"file.file_hash": fileHash,
+		"mcap_files.file_hash": fileHash,
 	}
 
 	fmt.Println(filters)
