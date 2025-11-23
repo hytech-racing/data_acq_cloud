@@ -28,7 +28,7 @@ import (
    - [ ] Once interpolation logic is fixed, write an interpolated MCAP file with the data.
 */
 
-// mcapHandler handles all requests related to MCAP data (uploads, deltions, edits, reading).
+// mcapHandler handles all requests related to MCAP data (uploads, deletions, edits, reading).
 type mcapHandler struct {
 	s3Repository  *s3.S3Repository
 	dbClient      *database.DatabaseClient
@@ -56,7 +56,12 @@ func NewMcapHandler(
 		// It limits the amount of uploads we accept to a pre-set limit
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
+
+		// static routes
 		r.Get("/", handler.GetMcapsFromFilters)
+		r.Get("/status", HandlerFunc(handler.CheckFileStatus).ServeHTTP)
+
+		// parameterized routes
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
 		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
 		r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
@@ -435,5 +440,30 @@ func (h *mcapHandler) ResetMetadataRecordFromID(w http.ResponseWriter, r *http.R
 	if err != nil {
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
+	return nil
+}
+
+// CheckFileStatus is a GET endpoint to check if run with fileHash exists in MongoDB; params -> (file_hash, string)
+// NOTE: this does not check for files currently being processed
+func (h *mcapHandler) CheckFileStatus(w http.ResponseWriter, r *http.Request) *HandlerError {
+	fileHash := r.URL.Query().Get("file_hash")
+	if fileHash == "" {
+		return NewHandlerError("file_hash must not be empty", http.StatusBadRequest)
+
+	}
+	vehicle_runs, err := h.dbClient.VehicleRunUseCase().FindVehicleRunByMCAPFileHash(r.Context(), fileHash)
+	if err != nil {
+		return NewHandlerError(
+			fmt.Sprintf("error checking file status for %q: %v", fileHash, err),
+			http.StatusInternalServerError,
+		)
+
+	}
+
+	hashExists := len(vehicle_runs) > 0
+
+	data := make(map[string]interface{})
+	data["stored"] = hashExists
+	render.JSON(w, r, data)
 	return nil
 }

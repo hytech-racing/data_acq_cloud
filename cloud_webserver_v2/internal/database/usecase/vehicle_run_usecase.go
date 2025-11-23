@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database/repository"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
@@ -25,6 +26,21 @@ func (uc *VehicleRunUseCase) CreateVehicleRun(ctx context.Context, model *models
 		return nil, err
 	}
 	return model, nil
+}
+
+func (uc *VehicleRunUseCase) FindVehicleRunByMCAPFileHash(ctx context.Context, fileHash string) ([]models.VehicleRunModel, error) {
+	filters := bson.M{
+		"mcap_files.file_hash": fileHash,
+	}
+
+	fmt.Println(filters)
+
+	result, err := uc.vechicleRunRepo.GetWithVehicleFilters(ctx, &filters)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters *models.VehicleRunModelFilters) ([]models.VehicleRunModel, error) {
