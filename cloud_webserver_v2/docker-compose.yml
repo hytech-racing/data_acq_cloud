@@ -1,20 +1,50 @@
 services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=1
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./localstack/init:/etc/localstack/init
+      - ./localstack/init:/etc/localstack/init/ready.d
+
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=test
+      - MONGO_INITDB_ROOT_PASSWORD=test
+
   cloud_webserver_v2:
     container_name: cloud_webserver_v2
+    build:
+      context: .
+    env_file:
+      - .env.development
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    depends_on:
+      - mongo
+      - localstack
     volumes:
       - matlab_mps_data:/mps_data
       - run_metadata:/data/run_metadata
       - ./htmls:/app/files
       - ./logs:/app/logs
-    build:
-      context: .
-    env_file: 
-      - .env
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
 
 volumes:
+  localstack-data:
+  mongo-data:
   run_metadata:
   matlab_mps_data:
-    external: true
