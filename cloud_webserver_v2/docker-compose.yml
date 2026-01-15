@@ -30,7 +30,10 @@ services:
     build:
       context: .
     env_file:
-      - .env.development
+      - path: .env
+        required: true
+      - path: .env.development
+        required: false
     ports:
       - "8080:8080"
     restart: unless-stopped
