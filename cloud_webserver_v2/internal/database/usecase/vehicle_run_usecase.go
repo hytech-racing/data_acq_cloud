@@ -127,7 +127,10 @@ func (uc *VehicleRunUseCase) AddMiscFile(ctx context.Context, vehicleRunID primi
 		FilePath:  filePath,
 		FileName:  fileName,
 	}
-	vehicleRun.MiscFiles = append(vehicleRun.MiscFiles, miscFile)
+	if vehicleRun.ContentFiles["misc_files"] == nil {
+		vehicleRun.ContentFiles["misc_files"] = []models.FileModel{}
+	}
+	vehicleRun.ContentFiles["misc_files"] = append(vehicleRun.ContentFiles["misc_files"], miscFile)
 	err = uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, vehicleRunID, vehicleRun)
 	if err != nil {
 		return nil, err

@@ -59,7 +59,6 @@ type VehicleRunModel struct {
 	Date           time.Time              `bson:"date"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
 	MpsRecord      MpsRecordModel         `bson:"mps_record,omitempty"`
-	MiscFiles      []FileModel            `bson:"misc_files,omitempty"`
 }
 
 type VehicleRunModelResponse struct {
@@ -75,7 +74,6 @@ type VehicleRunModelResponse struct {
 	EventType      *string                        `json:"event_type"`
 	DynamicFields  map[string]interface{}         `json:"dynamic_fields"`
 	MpsRecord      MpsRecordModel                 `json:"mps_record"`
-	MiscFiles      []FileModelResponse            `json:"misc_files"`
 }
 
 func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model VehicleRunModel) VehicleRunModelResponse {
@@ -108,10 +106,6 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 			fileResponses := getFileModelResponse(ctx, s3Repo, files)
 			modelOut.ContentFiles[key] = fileResponses
 		}
-	}
-	if model.MiscFiles != nil && len(model.MiscFiles) > 0 {
-		miscResponses := getFileModelResponse(ctx, s3Repo, model.MiscFiles)
-		modelOut.MiscFiles = miscResponses
 	}
 
 	return modelOut
