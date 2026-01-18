@@ -33,7 +33,7 @@ services:
       - path: .env.development
         required: false
       - path: .env
-        required: true
+        required: false
     ports:
       - "8080:8080"
     restart: unless-stopped
