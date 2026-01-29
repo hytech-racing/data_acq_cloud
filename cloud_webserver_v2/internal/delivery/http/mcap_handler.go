@@ -1,7 +1,6 @@
 package http
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -70,6 +69,7 @@ func NewMcapHandler(
 // Retrieves misc files uploaded from request, calls S3 usecase to update S3, & calls vehicle run usecase to
 // update MongoDB
 func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	err := r.ParseMultipartForm(32 << 20)
 	if err != nil {
 		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
@@ -89,8 +89,6 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
 	s3Key := fmt.Sprintf("%s/miscFiles/%s", vehicleRunID.Hex(), header.Filename)
 	exists, err := h.dbClient.VehicleRunUseCase().FileNameExists(ctx, vehicleRunID, header.Filename)
 	if err != nil {
