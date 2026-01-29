@@ -93,10 +93,10 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	s3Key := fmt.Sprintf("%s/miscFiles/%s", vehicleRunID.Hex(), header.Filename)
 	exists, err := h.dbClient.VehicleRunUseCase().FileNameExists(ctx, vehicleRunID, header.Filename)
-	if (err != nil) {
+	if err != nil {
 		http.Error(w, "Failed to save misc file to vehicle run: "+err.Error(), http.StatusInternalServerError)
 	}
-	if (exists) {
+	if exists {
 		http.Error(w, "File name already exists, duplicate file names not allowed", http.StatusNotAcceptable)
 		return
 	}
