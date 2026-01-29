@@ -91,21 +91,28 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	s3Key := fmt.Sprintf("%s/%s", vehicleRunID.Hex(), header.Filename)
+	s3Key := fmt.Sprintf("%s/miscFiles/%s", vehicleRunID.Hex(), header.Filename)
+	exists, err := h.dbClient.VehicleRunUseCase().FileNameExists(ctx, vehicleRunID, header.Filename)
+	if (err != nil) {
+		http.Error(w, "Failed to save misc file to vehicle run: "+err.Error(), http.StatusInternalServerError)
+	}
+	if (exists) {
+		http.Error(w, "File name already exists, duplicate file names not allowed", http.StatusNotAcceptable)
+		return
+	}
 	err = h.s3Repository.WriteObjectReader(ctx, file, s3Key)
 	if err != nil {
 		http.Error(w, "Failed to upload to S3: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	vehicleRun, err := h.dbClient.VehicleRunUseCase().AddMiscFile(ctx, vehicleRunID, h.s3Repository.Bucket(), header.Filename, s3Key)
+	_, err = h.dbClient.VehicleRunUseCase().AddMiscFile(ctx, vehicleRunID, h.s3Repository.Bucket(), header.Filename, s3Key)
 	if err != nil {
 		http.Error(w, "Failed to save misc file to vehicle run: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	response := map[string]interface{}{
 		"message": "Misc file uploaded successfully",
-		"data":    vehicleRun,
 	}
 	render.JSON(w, r, response)
 }
