@@ -13,6 +13,16 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./localstack/init:/etc/localstack/init
       - ./localstack/init:/etc/localstack/init/ready.d
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl -fsS http://localhost:4566/_localstack/health | grep -q ''"s3": "running"''',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
 
   mongo:
     image: mongo:7
@@ -24,6 +34,16 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=test
       - MONGO_INITDB_ROOT_PASSWORD=test
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' localhost:27017 | grep -q 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   cloud_webserver_v2:
     container_name: cloud_webserver_v2
@@ -38,8 +58,10 @@ services:
       - "8080:8080"
     restart: unless-stopped
     depends_on:
-      - mongo
-      - localstack
+      mongo:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
     volumes:
       - matlab_mps_data:/mps_data
       - run_metadata:/data/run_metadata
