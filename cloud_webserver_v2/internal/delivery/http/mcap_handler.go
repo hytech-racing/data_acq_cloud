@@ -72,11 +72,11 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	err := r.ParseMultipartForm(32 << 20)
 	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to parse multipart form"),  http.StatusBadRequest)
+		return NewHandlerError(fmt.Sprintf("Failed to parse multipart form"), http.StatusBadRequest)
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Could not read file from request"),  http.StatusBadRequest)
+		return NewHandlerError(fmt.Sprintf("Could not read file from request"), http.StatusBadRequest)
 	}
 	defer file.Close()
 
