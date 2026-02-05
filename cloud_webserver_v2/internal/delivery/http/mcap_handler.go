@@ -63,6 +63,7 @@ func NewMcapHandler(
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
 		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
+		r.Delete("{id}/miscFiles/{fileName}", HandlerFunc(handler.DeleteMiscFile).ServeHTTP)
 	})
 }
 
@@ -72,11 +73,11 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	err := r.ParseMultipartForm(32 << 20)
 	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to parse multipart form"),  http.StatusBadRequest)
+		return NewHandlerError(fmt.Sprintf("Failed to parse multipart form"), http.StatusBadRequest)
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Could not read file from request"),  http.StatusBadRequest)
+		return NewHandlerError(fmt.Sprintf("Could not read file from request"), http.StatusBadRequest)
 	}
 	defer file.Close()
 
@@ -107,6 +108,49 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 		"message": "Misc file uploaded successfully",
 	}
 	render.JSON(w, r, response)
+	return nil
+}
+
+func (h *mcapHandler) DeleteMiscFile(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	vehicleRunID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Could not decode MCAP id %v, %v", id, err), http.StatusInternalServerError)
+	}
+	fileName := chi.URLParam(r, "fileName")
+	vehicleRun, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, vehicleRunID)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return NewHandlerError(fmt.Sprintf("no run with id %v found", id), http.StatusNotFound)
+		}
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+	var targetFile *models.FileModel
+	for _, f := range vehicleRun.ContentFiles["misc_files"] {
+		if f.FileName == fileName {
+			targetFile = &f
+			break
+		}
+	}
+	if targetFile == nil {
+		return NewHandlerError(fmt.Sprintf("File does not exist to be deleted"), http.StatusBadRequest)
+	}
+	err = h.s3Repository.DeleteObject(ctx, targetFile.AwsBucket, targetFile.FilePath)
+	if err != nil {
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+	updatedFiles := make([]models.FileModel, 0)
+	for _, f := range vehicleRun.ContentFiles["misc_files"] {
+		if f.FileName != fileName {
+			updatedFiles = append(updatedFiles, f)
+		}
+	}
+	vehicleRun.ContentFiles["misc_files"] = updatedFiles
+	err = h.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, vehicleRunID, vehicleRun)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Failed to update vehicle run"), http.StatusInternalServerError)
+	}
 	return nil
 }
 
