@@ -67,7 +67,100 @@ func NewMcapHandler(
 		r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
+		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
+		r.Delete("/{id}/deleteMiscFile/{fileName}", HandlerFunc(handler.DeleteMiscFile).ServeHTTP)
 	})
+}
+
+// Retrieves misc files uploaded from request, calls S3 usecase to update S3, & calls vehicle run usecase to
+// update MongoDB
+func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+	err := r.ParseMultipartForm(32 << 20)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Failed to parse multipart form"), http.StatusBadRequest)
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Could not read file from request"), http.StatusBadRequest)
+	}
+	defer file.Close()
+
+	idStr := chi.URLParam(r, "id")
+	vehicleRunID, err := primitive.ObjectIDFromHex(idStr)
+	if err != nil {
+		return NewHandlerError(fmt.Sprint("Invalid vehicle run ID"), http.StatusBadRequest)
+	}
+
+	s3Key := fmt.Sprintf("%s/miscFiles/%s", vehicleRunID.Hex(), header.Filename)
+	exists, err := h.dbClient.VehicleRunUseCase().FileNameExists(ctx, vehicleRunID, header.Filename)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: "+err.Error()), http.StatusInternalServerError)
+	}
+	if exists {
+		return NewHandlerError(fmt.Sprintf("File name already exists, duplicate file names not allowed"), http.StatusNotAcceptable)
+	}
+	err = h.s3Repository.WriteObjectReader(ctx, file, s3Key)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Failed to upload to S3: "+err.Error()), http.StatusInternalServerError)
+	}
+
+	_, err = h.dbClient.VehicleRunUseCase().AddMiscFile(ctx, vehicleRunID, h.s3Repository.Bucket(), header.Filename, s3Key)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: "+err.Error()), http.StatusInternalServerError)
+	}
+	response := map[string]interface{}{
+		"message": "Misc file uploaded successfully",
+	}
+	render.JSON(w, r, response)
+	return nil
+}
+
+func (h *mcapHandler) DeleteMiscFile(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	vehicleRunID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Could not decode MCAP id %v, %v", id, err), http.StatusInternalServerError)
+	}
+	fileName := chi.URLParam(r, "fileName")
+	vehicleRun, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, vehicleRunID)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return NewHandlerError(fmt.Sprintf("no run with id %v found", id), http.StatusNotFound)
+		}
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+	var targetFile *models.FileModel
+	for _, f := range vehicleRun.ContentFiles["misc_files"] {
+		if f.FileName == fileName {
+			targetFile = &f
+			break
+		}
+	}
+	if targetFile == nil {
+		return NewHandlerError(fmt.Sprintf("File does not exist to be deleted"), http.StatusBadRequest)
+	}
+	err = h.s3Repository.DeleteObject(ctx, targetFile.AwsBucket, targetFile.FilePath)
+	if err != nil {
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+	updatedFiles := make([]models.FileModel, 0)
+	for _, f := range vehicleRun.ContentFiles["misc_files"] {
+		if f.FileName != fileName {
+			updatedFiles = append(updatedFiles, f)
+		}
+	}
+	vehicleRun.ContentFiles["misc_files"] = updatedFiles
+	err = h.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, vehicleRunID, vehicleRun)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("Failed to update vehicle run"), http.StatusInternalServerError)
+	}
+	response := map[string]interface{}{
+		"message": "Misc file deleted successfully",
+	}
+	render.JSON(w, r, response)
+	return nil
 }
 
 // GetMcapsFromFilters takes in filters through Query parameters and will respond with a

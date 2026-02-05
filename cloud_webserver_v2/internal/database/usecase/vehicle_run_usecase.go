@@ -132,3 +132,39 @@ func (uc *VehicleRunUseCase) DeleteVehicleRunById(ctx context.Context, id primit
 func (uc *VehicleRunUseCase) UpdateVehicleRun(ctx context.Context, id primitive.ObjectID, model *models.VehicleRunModel) error {
 	return uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, id, model)
 }
+
+func (uc *VehicleRunUseCase) AddMiscFile(ctx context.Context, vehicleRunID primitive.ObjectID, awsBucket string, fileName string, filePath string) (*models.VehicleRunModel, error) {
+	vehicleRun, err := uc.vechicleRunRepo.GetVehicleRunFromId(ctx, vehicleRunID)
+	if err != nil {
+		return nil, err
+	}
+	miscFile := models.FileModel{
+		AwsBucket: awsBucket,
+		FilePath:  filePath,
+		FileName:  fileName,
+	}
+	if vehicleRun.ContentFiles["misc_files"] == nil {
+		vehicleRun.ContentFiles["misc_files"] = []models.FileModel{}
+	}
+	vehicleRun.ContentFiles["misc_files"] = append(vehicleRun.ContentFiles["misc_files"], miscFile)
+	err = uc.vechicleRunRepo.UpdateVehicleRunFromId(ctx, vehicleRunID, vehicleRun)
+	if err != nil {
+		return nil, err
+	}
+	return vehicleRun, nil
+}
+
+func (uc *VehicleRunUseCase) FileNameExists(ctx context.Context, vehicleRunID primitive.ObjectID, fileName string) (bool, error) {
+	vehicleRun, err := uc.vechicleRunRepo.GetVehicleRunFromId(ctx, vehicleRunID)
+	if err != nil {
+		return true, err
+	}
+	if vehicleRun.ContentFiles["misc_files"] != nil {
+		for _, f := range vehicleRun.ContentFiles["misc_files"] {
+			if f.FileName == fileName {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
