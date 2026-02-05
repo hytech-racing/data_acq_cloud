@@ -62,57 +62,52 @@ func NewMcapHandler(
 		r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
-		r.Post("/{id}/addMiscFiles", handler.UploadNewMiscFile)
+		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
 	})
 }
 
 // Retrieves misc files uploaded from request, calls S3 usecase to update S3, & calls vehicle run usecase to
 // update MongoDB
-func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) {
+func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
 	err := r.ParseMultipartForm(32 << 20)
 	if err != nil {
-		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
-		return
+		return NewHandlerError(fmt.Sprintf("Failed to parse multipart form"),  http.StatusBadRequest)
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "Could not read file from request", http.StatusBadRequest)
-		return
+		return NewHandlerError(fmt.Sprintf("Could not read file from request"),  http.StatusBadRequest)
 	}
 	defer file.Close()
 
 	idStr := chi.URLParam(r, "id")
 	vehicleRunID, err := primitive.ObjectIDFromHex(idStr)
 	if err != nil {
-		http.Error(w, "Invalid vehicle run ID", http.StatusBadRequest)
-		return
+		return NewHandlerError(fmt.Sprint("Invalid vehicle run ID"), http.StatusBadRequest)
 	}
 
 	s3Key := fmt.Sprintf("%s/miscFiles/%s", vehicleRunID.Hex(), header.Filename)
 	exists, err := h.dbClient.VehicleRunUseCase().FileNameExists(ctx, vehicleRunID, header.Filename)
 	if err != nil {
-		http.Error(w, "Failed to save misc file to vehicle run: "+err.Error(), http.StatusInternalServerError)
+		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: "+err.Error()), http.StatusInternalServerError)
 	}
 	if exists {
-		http.Error(w, "File name already exists, duplicate file names not allowed", http.StatusNotAcceptable)
-		return
+		return NewHandlerError(fmt.Sprintf("File name already exists, duplicate file names not allowed"), http.StatusNotAcceptable)
 	}
 	err = h.s3Repository.WriteObjectReader(ctx, file, s3Key)
 	if err != nil {
-		http.Error(w, "Failed to upload to S3: "+err.Error(), http.StatusInternalServerError)
-		return
+		return NewHandlerError(fmt.Sprintf("Failed to upload to S3: "+err.Error()), http.StatusInternalServerError)
 	}
 
 	_, err = h.dbClient.VehicleRunUseCase().AddMiscFile(ctx, vehicleRunID, h.s3Repository.Bucket(), header.Filename, s3Key)
 	if err != nil {
-		http.Error(w, "Failed to save misc file to vehicle run: "+err.Error(), http.StatusInternalServerError)
-		return
+		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: "+err.Error()), http.StatusInternalServerError)
 	}
 	response := map[string]interface{}{
 		"message": "Misc file uploaded successfully",
 	}
 	render.JSON(w, r, response)
+	return nil
 }
 
 // GetMcapsFromFilters takes in filters through Query parameters and will respond with a
