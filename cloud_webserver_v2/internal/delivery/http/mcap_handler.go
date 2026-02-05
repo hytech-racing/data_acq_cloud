@@ -63,7 +63,7 @@ func NewMcapHandler(
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
 		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
-		r.Delete("{id}/miscFiles/{fileName}", HandlerFunc(handler.DeleteMiscFile).ServeHTTP)
+		r.Delete("/{id}/deleteMiscFile/{fileName}", HandlerFunc(handler.DeleteMiscFile).ServeHTTP)
 	})
 }
 
@@ -151,6 +151,10 @@ func (h *mcapHandler) DeleteMiscFile(w http.ResponseWriter, r *http.Request) *Ha
 	if err != nil {
 		return NewHandlerError(fmt.Sprintf("Failed to update vehicle run"), http.StatusInternalServerError)
 	}
+	response := map[string]interface{}{
+		"message": "Misc file deleted successfully",
+	}
+	render.JSON(w, r, response)
 	return nil
 }
 
