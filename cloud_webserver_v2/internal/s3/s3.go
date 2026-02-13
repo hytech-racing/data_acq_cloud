@@ -3,6 +3,7 @@ package s3
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -30,6 +31,7 @@ func NewS3Session(accessKey string, secretKey string, region string, bucket stri
 	// Create an aws s3 service client
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
+		o.UsePathStyle = os.Getenv("ENV") == "DEVELOPMENT"
 	})
 	presignClient := s3.NewPresignClient(client)
 
