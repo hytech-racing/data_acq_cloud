@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"context"
 	"sync"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
@@ -29,6 +30,7 @@ type Publisher struct {
 	mutex        sync.Mutex
 	wg           sync.WaitGroup
 	resultsWg    sync.WaitGroup
+	router       Router
 }
 
 type SubscriberResult struct {
@@ -37,23 +39,30 @@ type SubscriberResult struct {
 	ResultData     map[string]interface{}
 }
 
-func NewPublisher(enableResultsListener bool) *Publisher {
-	var results_chan chan SubscriberResult = nil
-	if enableResultsListener {
-		results_chan = make(chan SubscriberResult)
-	}
+// Router will take in a decoded MCAP message and return a map of subscriber names to route the message to
+type Router func(ctx context.Context, message *utils.DecodedMessage, possibleRoutes []string) []string
 
+func NewPublisher() *Publisher {
 	publisher := &Publisher{
-		subscribers:  make(map[string]chan SubscribedMessage),
-		results_chan: results_chan,
-		end_results:  make(SubscriberResults),
-	}
-
-	if enableResultsListener {
-		publisher.initCollectResults()
+		subscribers: make(map[string]chan SubscribedMessage),
+		end_results: make(SubscriberResults),
 	}
 
 	return publisher
+}
+
+func (p *Publisher) WithRouter(router Router) *Publisher {
+	p.router = router
+	return p
+}
+
+func (p *Publisher) WithResultsListener() *Publisher {
+	if p.results_chan == nil {
+		p.results_chan = make(chan SubscriberResult)
+		p.initCollectResults()
+	}
+
+	return p
 }
 
 // Subscribe adds a new subscriber channel to the publisher
@@ -71,10 +80,18 @@ func (p *Publisher) Subscribe(id int, subscriberName string, subFunc SubscriberF
 	}()
 }
 
-// Publishes a new message to all subscribers in subscriberNames
-func (p *Publisher) Publish(message *utils.DecodedMessage, subscriberNames []string) {
+func (p *Publisher) Publish(ctx context.Context, message *utils.DecodedMessage) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+
+	subscriberNames := make([]string, 0)
+	for sub := range p.subscribers {
+		subscriberNames = append(subscriberNames, sub)
+	}
+
+	if p.router != nil { // If there is a router, use it to determine which subscribers to send the message to
+		subscriberNames = p.router(ctx, message, subscriberNames)
+	}
 
 	subscriberMessage := SubscribedMessage{
 		content: message,
