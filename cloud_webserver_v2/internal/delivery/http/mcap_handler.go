@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,7 +123,22 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 		filters.MpsFunction = &mps_function
 	}
 
-	resModels, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
+	var resModels []models.VehicleRunModel
+	var err error
+
+	if queryParams.Has("limit") && queryParams.Has("offset") {
+		limit, errLimit := strconv.ParseInt(queryParams.Get("limit"), 10, 64)
+		offset, errOffset := strconv.ParseInt(queryParams.Get("offset"), 10, 64)
+
+		if errLimit == nil && errOffset == nil {
+			resModels, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFiltersPaged(ctx, &filters, limit, offset)
+		} else {
+			resModels, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
+		}
+	} else {
+		resModels, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
+	}
+
 	if err != nil {
 		log.Fatal(err)
 	}
