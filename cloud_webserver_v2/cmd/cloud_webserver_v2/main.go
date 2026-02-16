@@ -64,7 +64,6 @@ func main() {
 	if uri == "" {
 		log.Fatal("could not get mongodb uri environment variable")
 	}
-
 	dbClient, err := database.NewDatabaseClient(ctx, uri)
 	if err != nil {
 		log.Fatal(err)

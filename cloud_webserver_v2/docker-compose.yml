@@ -1,75 +1,20 @@
 services:
-  localstack:
-    image: localstack/localstack:latest
-    container_name: localstack
-    ports:
-      - "4566:4566"
-    environment:
-      - SERVICES=s3
-      - DEBUG=1
-      - DEFAULT_REGION=us-east-1
-    volumes:
-      - localstack-data:/var/lib/localstack
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./localstack/init:/etc/localstack/init
-      - ./localstack/init:/etc/localstack/init/ready.d
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'curl -fsS http://localhost:4566/_localstack/health | grep -q ''"s3": "running"''',
-        ]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
-
-  mongo:
-    image: mongo:7
-    container_name: mongo
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=test
-      - MONGO_INITDB_ROOT_PASSWORD=test
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' localhost:27017 | grep -q 1",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
-
   cloud_webserver_v2:
     container_name: cloud_webserver_v2
-    build:
-      context: .
-    env_file:
-      - path: .env.development
-        required: false
-      - path: .env
-        required: false
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
-    depends_on:
-      mongo:
-        condition: service_healthy
-      localstack:
-        condition: service_healthy
     volumes:
       - matlab_mps_data:/mps_data
       - run_metadata:/data/run_metadata
       - ./htmls:/app/files
       - ./logs:/app/logs
+    build:
+      context: .
+    env_file: 
+      - .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
 
 volumes:
-  localstack-data:
-  mongo-data:
   run_metadata:
   matlab_mps_data:
+    external: true
