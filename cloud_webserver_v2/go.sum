@@ -111,6 +111,8 @@ github.com/envoyproxy/go-control-plane v0.9.1-0.20191026205805-5f8ba28d4473/go.m
 github.com/envoyproxy/go-control-plane v0.9.4/go.mod h1:6rpuAdCZL397s3pYoYcLgu1mIlRU8Am5FuJP05cCM98=
 github.com/envoyproxy/go-control-plane v0.9.9-0.20201210154907-fd9021fe5dad/go.mod h1:cXg6YxExXjJnVBQHBLXeUAgxn2UodCpnH306RInaBQk=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
+github.com/foxglove/mcap v0.0.0 h1:YadOlLL+JDW9TqgpPvXUFFmEb30T97zxS7THsaEFdaQ=
+github.com/foxglove/mcap v0.0.0/go.mod h1:xZ5yfiA5sedJJ67mJRjgi0shtEpFRow77qgm4SeFpIg=
 github.com/foxglove/mcap/go/cli/mcap v0.0.0-20260128210300-23764dde5086 h1:7qct0s7x2WhDwPIXljRmGtL5EDpGuF1EmCQ9RnUnWYk=
 github.com/foxglove/mcap/go/cli/mcap v0.0.0-20260128210300-23764dde5086/go.mod h1:/mcOzVX33tngVl2OYZurgndB8xpZYJ0MKzf0Hx5aKRA=
 github.com/foxglove/mcap/go/mcap v1.4.1 h1:ZveN2IqavMz+eST9v/S9e0teRrRLatsy+pvNqh7MF/k=

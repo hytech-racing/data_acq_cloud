@@ -1,6 +1,4 @@
 services:
-<<<<<<< Updated upstream
-=======
   localstack:
     image: localstack/localstack:latest
     container_name: localstack
@@ -13,7 +11,6 @@ services:
     volumes:
       - localstack-data:/var/lib/localstack
       - /var/run/docker.sock:/var/run/docker.sock
-      # Put your init scripts here (ready.d)
       - ./localstack/init:/etc/localstack/init/ready.d
     healthcheck:
       test:
@@ -47,23 +44,29 @@ services:
       retries: 30
       start_period: 10s
 
->>>>>>> Stashed changes
   cloud_webserver_v2:
     container_name: cloud_webserver_v2
+    build:
+      context: .
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
     volumes:
       - matlab_mps_data:/mps_data
       - run_metadata:/data/run_metadata
       - ./htmls:/app/files
       - ./logs:/app/logs
-    build:
-      context: .
-    env_file: 
-      - .env
-    ports:
-      - "8080:8080"
+    depends_on:
+      localstack:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
+  localstack-data:
+  mongo-data:
   run_metadata:
   matlab_mps_data:
     external: true
