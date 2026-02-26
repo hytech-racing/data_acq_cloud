@@ -9,11 +9,19 @@ import (
 	"os"
 	"strings"
 
+	"github.com/foxglove/mcap/go/mcap"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+// global mcap recovery options
+var RECOVER_OPTIONS = utils.RecoverOptions{
+	DecodeChunk: true,
+	ChunkSize:   64,
+	Compression: mcap.CompressionZSTD,
+}
 
 // PostProcessMCAPUploadJob handles the post processing of MCAP files.
 // PostProcessMCAPUploadJob serves as a wrapper struct to hold the Process function
@@ -24,6 +32,21 @@ type PostProcessMCAPUploadJob struct{}
 // handle operations like creating HDF5 files and generating graphs.
 // It also saves all this information to the database and stores files on S3.
 func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJob) error {
+
+	reader, err := os.Open(job.FilePath)
+	if err != nil {
+	}
+	defer reader.Close()
+
+	file, err := os.Create("recovered.mcap")
+	if err != nil {
+	}
+	defer file.Close()
+
+	job.FilePath = file.Name()
+
+	err = utils.RecoverRun(reader, file, &RECOVER_OPTIONS)
+
 	ctx := context.Background()
 	fp.setCurrentlyProcessing(true)
 	fp.updateJobStatus(job, StatusProcessing)
@@ -66,7 +89,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	defer mcapFileS3Reader.Close()
 
 	recordId := primitive.NewObjectID()
-	mcapFileName := job.Filename
+	mcapFileName := "recovered.mcap"
 	mcapObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
 	err = fp.s3Repository.WriteObjectReader(ctx, mcapFileS3Reader, mcapObjectFilePath)
 	if err != nil {

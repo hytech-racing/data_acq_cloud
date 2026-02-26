@@ -6,7 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+<<<<<<< Updated upstream
 	"log"
+=======
+<<<<<<< Updated upstream
+=======
+	"log"
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
 
 	"github.com/foxglove/mcap/go/cli/mcap/utils"
 	"github.com/foxglove/mcap/go/mcap"
@@ -23,7 +30,14 @@ func RecoverRun(
 	w io.Writer,
 	ops *RecoverOptions,
 ) error {
+<<<<<<< Updated upstream
 	log.Println("RUNNING RECOVERY FUNCTION")
+=======
+<<<<<<< Updated upstream
+=======
+	log.Println("RUNNING RECOVERY FUNCTION")
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
 	if ops == nil {
 		ops = &RecoverOptions{
 			DecodeChunk: false,
