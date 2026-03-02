@@ -113,11 +113,6 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 }
 
 func serializeMPSRecord(ctx context.Context, s3Repo *s3.S3Repository, mpsRecord MpsRecordModel) MpsRecordModel {
-	// if s3Repo is nil we are not including signed URLs, just return original record
-	if s3Repo == nil {
-		return mpsRecord
-	}
-
 	s3Bucket := s3Repo.Bucket()
 	for packageName, scripts := range mpsRecord {
 		for scriptName, result := range scripts {
