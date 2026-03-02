@@ -113,6 +113,11 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 }
 
 func serializeMPSRecord(ctx context.Context, s3Repo *s3.S3Repository, mpsRecord MpsRecordModel) MpsRecordModel {
+	// if s3Repo is nil we are not including signed URLs, just return original record
+	if s3Repo == nil {
+		return mpsRecord
+	}
+
 	s3Bucket := s3Repo.Bucket()
 	for packageName, scripts := range mpsRecord {
 		for scriptName, result := range scripts {
@@ -129,8 +134,19 @@ func serializeMPSRecord(ctx context.Context, s3Repo *s3.S3Repository, mpsRecord 
 }
 
 func getFileModelResponse(ctx context.Context, s3Repo *s3.S3Repository, files []FileModel) []FileModelResponse {
-	s3Bucket := s3Repo.Bucket()
+	// if repository is nil we don't generate signed URLs
 	outFiles := make([]FileModelResponse, len(files))
+	if s3Repo == nil {
+		for idx, file := range files {
+			outFiles[idx] = FileModelResponse{
+				SignedUrl: "",
+				FileName:  file.FileName,
+			}
+		}
+		return outFiles
+	}
+
+	s3Bucket := s3Repo.Bucket()
 	for idx, file := range files {
 		signedUrl := s3Repo.GetSignedUrl(ctx, s3Bucket, file.FilePath)
 		outFiles[idx] = FileModelResponse{

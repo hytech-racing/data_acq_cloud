@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,7 +59,7 @@ func NewMcapHandler(
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
 
 		// static routes
-		r.Get("/", handler.GetMcapsFromFilters)
+		r.Get("/", HandlerFunc(handler.GetMcapsFromFilters).ServeHTTP)
 		r.Get("/status", HandlerFunc(handler.CheckFileStatus).ServeHTTP)
 
 		// parameterized routes
@@ -117,7 +118,7 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 
 // GetMcapsFromFilters takes in filters through Query parameters and will respond with a
 // map with a message and data field where data contains the filtered MCAPs
-func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request) {
+func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
 	queryParams := r.URL.Query()
 
@@ -172,20 +173,35 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 		filters.MpsFunction = &mps_function
 	}
 
+	includeSignedURLs := false
+	if queryParams.Has("include_signed_urls") {
+		parsed, err := strconv.ParseBool(queryParams.Get("include_signed_urls"))
+		if err != nil {
+			return NewHandlerError("include_signed_urls must be either true or false", http.StatusBadRequest)
+		}
+		includeSignedURLs = parsed
+	}
+
 	resModels, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	res := make([]models.VehicleRunModelResponse, len(resModels))
+	var s3Repo *s3.S3Repository
+	if includeSignedURLs {
+		s3Repo = h.s3Repository
+	}
 	for idx, model := range resModels {
-		res[idx] = models.VehicleRunSerialize(ctx, h.s3Repository, model)
+		res[idx] = models.VehicleRunSerialize(ctx, s3Repo, model)
 	}
 
 	data := make(map[string]interface{})
 	data["data"] = res
 	data["message"] = make(map[string]interface{})
 	render.JSON(w, r, data)
+
+	return nil
 }
 
 // GetMcapFromID takes in an ID from a URL param and responds with an MCAP with that ID.
