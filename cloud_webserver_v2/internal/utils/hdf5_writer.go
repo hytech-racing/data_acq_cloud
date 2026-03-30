@@ -8,10 +8,31 @@ import (
 	"gonum.org/v1/hdf5"
 )
 
+// MaxFixedBytesLen is the max byte length for protobuf bytes fields stored as
+// fixed-length HDF5 arrays to avoid variable-length global heap exhaustion.
+const MaxFixedBytesLen = 128
+
 // Wrapper to store our message data and timestamps
 type HDF5WrapperMessage struct {
 	Data      interface{} `hdf5:"Message"`
 	Timestamp float64     `hdf5:"Timestamp"`
+}
+
+// HDF5FixedBytesMessage is used when Data is []byte (protobuf bytes fields).
+// The fixed-length byte array is stored inline in the HDF5 dataset, bypassing
+// the global heap that variable-length types require.
+type HDF5FixedBytesMessage struct {
+	Data      [MaxFixedBytesLen]byte
+	Timestamp float64
+}
+
+func toFixedBytesMessage(msg *HDF5WrapperMessage) *HDF5FixedBytesMessage {
+	var buf [MaxFixedBytesLen]byte
+	copy(buf[:], msg.Data.([]byte))
+	return &HDF5FixedBytesMessage{
+		Data:      buf,
+		Timestamp: msg.Timestamp,
+	}
 }
 
 type HDF5Writer struct {
@@ -83,8 +104,10 @@ func (writer *HDF5Writer) exploreAndAddDataset(path string, chunk *hdf5.Group, d
 		}
 
 	case []*HDF5WrapperMessage:
+		msgs := data.([]*HDF5WrapperMessage)
+
 		// Create our own DataType based on what data we have
-		dtype, err := CreateHDF5DataType(data.([]*HDF5WrapperMessage)) // is it str, char, slice etc?
+		dtype, err := CreateHDF5DataType(msgs) // is it str, char, slice etc?
 		if err != nil {
 			return err
 		}
@@ -97,9 +120,16 @@ func (writer *HDF5Writer) exploreAndAddDataset(path string, chunk *hdf5.Group, d
 		}
 		defer table.Close()
 
-		//Append data to table
-		for i := 0; i != len(data.([]*HDF5WrapperMessage)); i++ {
-			if err = table.Append(data.([]*HDF5WrapperMessage)[i]); err != nil {
+		// Protobuf bytes fields ([]byte) use HDF5FixedBytesMessage to avoid
+		// variable-length global heap allocation.
+		_, isBytes := msgs[0].Data.([]byte)
+		for i := 0; i != len(msgs); i++ {
+			if isBytes {
+				err = table.Append(toFixedBytesMessage(msgs[i]))
+			} else {
+				err = table.Append(msgs[i])
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -146,6 +176,12 @@ func FlattenSlice(data [][]float64) []float64 {
 
 // CreateDataType func Creates DataType based on the given message
 func CreateHDF5DataType(data []*HDF5WrapperMessage) (*hdf5.Datatype, error) {
+	// Protobuf bytes fields ([]byte) use a fixed-length byte array to avoid
+	// variable-length global heap exhaustion in HDF5 1.10.x.
+	if _, isBytes := data[0].Data.([]byte); isBytes {
+		return createFixedBytesCompoundType()
+	}
+
 	var dtype *hdf5.Datatype
 
 	// Find size of DataType
@@ -179,6 +215,40 @@ func CreateHDF5DataType(data []*HDF5WrapperMessage) (*hdf5.Datatype, error) {
 	}
 	dtype = &cdt.Datatype
 	return dtype, nil
+}
+
+// createFixedBytesCompoundType builds a compound HDF5 type matching
+// HDF5FixedBytesMessage: a fixed-length byte array field + a float64 timestamp.
+func createFixedBytesCompoundType() (*hdf5.Datatype, error) {
+	t := reflect.TypeOf(HDF5FixedBytesMessage{})
+	cdt, err := hdf5.NewCompoundType(int(t.Size()))
+	if err != nil {
+		return nil, err
+	}
+
+	// Fixed-length byte array field
+	elemType, err := hdf5.NewDataTypeFromType(reflect.TypeFor[uint8]())
+	if err != nil {
+		return nil, err
+	}
+	arrayType, err := hdf5.NewArrayType(elemType, []int{MaxFixedBytesLen})
+	if err != nil {
+		return nil, err
+	}
+	if err := cdt.Insert("Data", 0, &arrayType.Datatype); err != nil {
+		return nil, err
+	}
+
+	// Timestamp field
+	tsType, err := hdf5.NewDataTypeFromType(reflect.TypeFor[float64]())
+	if err != nil {
+		return nil, err
+	}
+	if err := cdt.Insert("Timestamp", MaxFixedBytesLen, tsType); err != nil {
+		return nil, err
+	}
+
+	return &cdt.Datatype, nil
 }
 func (writer *HDF5Writer) Close() error {
 	err := writer.rootGroup.Close()
