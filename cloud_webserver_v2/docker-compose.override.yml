@@ -1,0 +1,62 @@
+services:
+  garage:
+    container_name: garage
+    image: dxflrs/garage:v1.1.0
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml
+      - garage_data:/var/lib/garage/data
+      - garage_meta:/var/lib/garage/meta
+    ports:
+      - "3900:3900"
+      - "3902:3902"
+    healthcheck:
+      test: ["CMD", "/garage", "stats", "-a"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    command: ["--quiet"]
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=test
+      - MONGO_INITDB_ROOT_PASSWORD=test
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' localhost:27017 | grep -q 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  cloud_webserver_v2:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    env_file:
+      - path: .env.dev
+        required: true
+    depends_on:
+      mongo:
+        condition: service_healthy
+      garage:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - matlab_mps_data:/mps_data
+      - run_metadata:/data/run_metadata
+      - dops_htmls:/app/files
+      - dops_logs:/app/logs
+
+volumes:
+  garage_data:
+  garage_meta:
+  mongo-data:
