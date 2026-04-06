@@ -38,7 +38,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	}
 	defer reader.Close()
 
-	file, err := os.Create(fmt.Sprintf("%s-recovered.mcap", job.Filename))
+	file, err := os.Create(fmt.Sprintf("%s-recovered.mcap", strings.Trim(job.Filename, ".mcap")))
 	if err != nil {
 	}
 	defer file.Close()
@@ -89,7 +89,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	defer mcapFileS3Reader.Close()
 
 	recordId := primitive.NewObjectID()
-	mcapFileName := fmt.Sprintf("%s-recovered.mcap", job.Filename)
+	mcapFileName := fmt.Sprintf("%s-recovered.mcap", strings.Trim(job.Filename, ".mcap"))
 	mcapObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
 	err = fp.s3Repository.WriteObjectReader(ctx, mcapFileS3Reader, mcapObjectFilePath)
 	if err != nil {
