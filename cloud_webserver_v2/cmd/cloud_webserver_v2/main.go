@@ -107,10 +107,10 @@ func main() {
 	// Adding HT_Proto Listener...
 	proto_listener := proto_sync.Initializer(ctx, s3Repository)
 
-	// Create file fileProcessor with 10GB limit
+	// Create file fileProcessor with 20GB limit
 	fileProcessor, err := background.NewFileProcessor(
 		"./uploads",
-		10*1024*1024*1024, // 10GB
+		20*1024*1024*1024, // 20GB
 		dbClient,
 		s3Repository,
 	)
