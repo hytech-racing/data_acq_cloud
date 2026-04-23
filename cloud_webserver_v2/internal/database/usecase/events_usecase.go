@@ -82,7 +82,6 @@ func (uc *EventsUseCase) LogEvent(ctx context.Context, mcapID primitive.ObjectID
 	now := time.Now()
 	model := &models.EventsModel{
 		McapID:       &mcapID,
-		McapFilename: &filename,
 		Event:        &event,
 		Error:        errMsg,
 		CreatedAt:    &now,

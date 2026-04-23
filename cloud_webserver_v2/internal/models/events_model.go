@@ -10,7 +10,6 @@ import (
 type EventsModel struct {
 	ID           primitive.ObjectID  `bson:"_id,omitempty"`
 	McapID       *primitive.ObjectID `bson:"mcap_id,omitempty"`
-	McapFilename *string             `bson:"mcap_filename,omitempty"`
 	Event        *string             `bson:"event,omitempty"`
 	Error        *string             `bson:"error,omitempty"`
 	CreatedAt    *time.Time          `bson:"created_at,omitempty"`
