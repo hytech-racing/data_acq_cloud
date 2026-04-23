@@ -25,12 +25,16 @@ type PostProcessMCAPUploadJob struct{}
 // It also saves all this information to the database and stores files on S3.
 func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) error {
 	ctx := context.TODO()
+	recordId := primitive.NewObjectID()
 	fp.setCurrentlyProcessing(true)
 	fp.updateJobStatus(job, StatusProcessing)
+	_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "job_started", nil)
 
 	genericFileName := strings.Split(job.Filename, ".")[0]
 	mcapResults, err := p.readMCAPMessages(ctx, job, genericFileName)
 	if err != nil {
+		errMsg := err.Error()
+		_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "job_failed", &errMsg)
 		return err
 	}
 
@@ -61,22 +65,29 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	// Uploading MCAP file to S3
 	mcapFileS3Reader, err := os.Open(job.FilePath)
 	if err != nil {
+		errMsg := err.Error()
+		_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "mcap_upload_failed", &errMsg)
 		log.Fatalf("could not open mcap file %v", job.FilePath)
 	}
 	defer mcapFileS3Reader.Close()
 
-	recordId := primitive.NewObjectID()
+	// recordId := primitive.NewObjectID() moved to top
 	mcapFileName := job.Filename
 	mcapObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
 	err = fp.s3Repository.WriteObjectReader(ctx, mcapFileS3Reader, mcapObjectFilePath)
 	if err != nil {
+		errMsg := err.Error()
+		_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "mcap_upload_failed", &errMsg)
 		log.Fatal(err)
 	}
+	_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "mcap_uploaded", nil)
 	log.Printf("uploaded mcap file %v to s3", mcapFileName)
 
 	// Uploading HDF5 file to S3
 	hdf5File, err := os.Open(hdf5Location)
 	if err != nil {
+		errMsg := err.Error()
+		_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "hdf5_failed", &errMsg)
 		log.Fatalf("could not open mat matFile: %v", err)
 	}
 	defer hdf5File.Close()
@@ -85,8 +96,11 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	matObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), hdf5FileName)
 	err = fp.s3Repository.WriteObjectReader(ctx, hdf5File, matObjectFilePath)
 	if err != nil {
+		errMsg := err.Error()
+		_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "hdf5_failed", &errMsg)
 		log.Fatal(err)
 	}
+	_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "hdf5_uploaded", nil)
 	log.Printf("uploaded hdf5 file %v to s3", hdf5FileName)
 
 	// Uploading Lat-Lon file to S3
@@ -94,8 +108,11 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	vnLatLonPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnLatLonPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath)
 	if err != nil {
+		errMsg := err.Error()
+		_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "plots_failed", &errMsg)
 		log.Fatal(err)
 	}
+	// _, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "plots_uploaded", nil)
 	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
 
 	// Uploading Time-Vel file to S3
@@ -103,8 +120,11 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	vnTimeVelPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnTimeVelPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath)
 	if err != nil {
+		errMsg := err.Error()
+		_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "plots_failed", &errMsg)
 		log.Fatal(err)
 	}
+	_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "plots_uploaded", nil)
 	log.Printf("uploaded vn time vel plot %v to s3", vnTimeVelPlotName)
 
 	// After successful processing, if we are in PRODUCTION, save the mcap and h5 file to our docker volume
@@ -193,6 +213,8 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 
 	_, err = fp.dbClient.VehicleRunUseCase().CreateVehicleRun(ctx, vehicleRunModel)
 	if err != nil {
+		errMsg := err.Error()
+		_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "job_failed", &errMsg)
 		log.Fatal(err)
 	}
 
@@ -202,6 +224,7 @@ func (p *PostProcessMCAPUploadJob) Process(fp *FileProcessor, job *FileJob) erro
 	fp.updateJobStatus(job, StatusCompleted)
 	fp.setCurrentlyProcessing(false)
 
+	_, _ = fp.dbClient.EventsUseCase().LogEvent(ctx, recordId, job.Filename, "job_completed", nil)
 	log.Printf("Completed job %v", job.ID)
 	return nil
 }

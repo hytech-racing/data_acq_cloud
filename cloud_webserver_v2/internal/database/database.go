@@ -18,6 +18,7 @@ type DatabaseClient struct {
 	databaseClient       *mongo.Client
 	vehicleRunRepository repository.VehicleRunRepository
 	carMetricsRepository repository.CarMetricsRepository
+	eventsRepository     repository.EventsRepository
 }
 
 const VehicleDataDatabase = "vehicle_data_db"
@@ -55,6 +56,12 @@ func NewDatabaseClient(ctx context.Context, uri string) (*DatabaseClient, error)
 	}
 	databaseClient.carMetricsRepository = carMetricsRepository
 
+	eventsRepository, err := repository.NewMongoEventsRepository(client, vehicleDataDatabase)
+	if err != nil {
+		return nil, fmt.Errorf("could not create eventsRepository: %v", err)
+	}
+	databaseClient.eventsRepository = eventsRepository
+
 	return databaseClient, nil
 }
 
@@ -64,6 +71,10 @@ func (client *DatabaseClient) VehicleRunUseCase() *usecase.VehicleRunUseCase {
 
 func (client *DatabaseClient) CarMetricsUseCase() *usecase.CarMetricsUseCase {
 	return usecase.NewCarMetricsUseCase(client.carMetricsRepository)
+}
+
+func (client *DatabaseClient) EventsUseCase() *usecase.EventsUseCase {
+	return usecase.NewEventsUseCase(client.eventsRepository)
 }
 
 func (client *DatabaseClient) Disonnect(ctx context.Context) error {
