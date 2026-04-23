@@ -158,6 +158,7 @@ func main() {
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
+	handler.NewfoxgloveConfigHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)

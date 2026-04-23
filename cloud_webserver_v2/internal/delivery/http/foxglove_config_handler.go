@@ -13,7 +13,6 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/mps"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -41,7 +40,6 @@ func NewfoxgloveConfigHandler(
 	dbClient *database.DatabaseClient,
 	fileProcessor *background.FileProcessor,
 	fileUploadMiddleware *hytech_middleware.FileUploadMiddleware,
-	mpsClient *mps.MatlabClient,
 ) {
 	handler := &foxgloveConfigHandler{
 		s3Repository:  s3Repository,
