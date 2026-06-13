@@ -8,12 +8,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 const VehicleRunCollection string = "vehicle_run"
 
 type VehicleRunRepository interface {
 	Save(ctx context.Context, vehicleRun *models.VehicleRunModel) (*models.VehicleRunModel, error)
+	GetWithVehicleFiltersPaged(ctx context.Context, filters *bson.M, limit int64, offset int64) ([]models.VehicleRunModel, error)
 	GetWithVehicleFilters(ctx context.Context, filters *bson.M) ([]models.VehicleRunModel, error)
 	GetVehicleRunFromId(ctx context.Context, id primitive.ObjectID) (*models.VehicleRunModel, error)
 	DeleteVehicleRunFromId(ctx context.Context, id primitive.ObjectID) error
@@ -48,6 +50,27 @@ func (repo *MongoVehicleRunRepository) Save(ctx context.Context, vehicleRun *mod
 
 	vehicleRun.Id = res.InsertedID.(primitive.ObjectID)
 	return vehicleRun, nil
+}
+
+// Get a VehicleRunModel from the MongoDB database with filters
+func (repo *MongoVehicleRunRepository) GetWithVehicleFiltersPaged(ctx context.Context, filters *bson.M, limit int64, offset int64) ([]models.VehicleRunModel, error) {
+	opts := options.Find().SetLimit(limit).SetSkip(offset)
+	cursor, err := repo.collection.Find(ctx, filters, opts)
+	if err != nil {
+		return nil, fmt.Errorf("could not find in vehicle run data with filters %v, received error: %v", filters, err)
+	}
+
+	var modelResults []models.VehicleRunModel
+
+	if err = cursor.All(ctx, &modelResults); err != nil {
+		return nil, err
+	}
+
+	if modelResults == nil {
+		modelResults = make([]models.VehicleRunModel, 0)
+	}
+
+	return modelResults, nil
 }
 
 // Get a VehicleRunModel from the MongoDB database with filters
