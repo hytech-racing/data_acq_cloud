@@ -1,20 +1,22 @@
 services:
   cloud_webserver_v2:
     container_name: cloud_webserver_v2
-    volumes:
-      - matlab_mps_data:/mps_data
-      - run_metadata:/data/run_metadata
-      - ./htmls:/app/files
-      - ./logs:/app/logs
     build:
       context: .
-    env_file: 
-      - .env
+    env_file:
+      - path: .env
+        required: false
     ports:
       - "8080:8080"
     restart: unless-stopped
+    volumes:
+      - matlab_mps_data:/mps_data
+      - run_metadata:/data/run_metadata
+      - dops_htmls:/app/files
+      - dops_logs:/app/logs
 
 volumes:
-  run_metadata:
   matlab_mps_data:
-    external: true
+  run_metadata:
+  dops_htmls:
+  dops_logs:

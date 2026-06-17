@@ -1,0 +1,8 @@
+root = "."
+tmp_dir = "/tmp/air"
+
+[build]
+  cmd = "go build -o /tmp/air/server ./cmd/cloud_webserver_v2"
+  bin = "/tmp/air/server"
+  include_ext = ["go", "toml", "env"]
+  exclude_dir = ["vendor", "uploads", "garage"]
