@@ -18,6 +18,7 @@ type DatabaseClient struct {
 	databaseClient       *mongo.Client
 	vehicleRunRepository repository.VehicleRunRepository
 	carMetricsRepository repository.CarMetricsRepository
+	foxgloveConfigRepository repository.FoxgloveConfigRepository
 }
 
 const VehicleDataDatabase = "vehicle_data_db"
@@ -55,6 +56,12 @@ func NewDatabaseClient(ctx context.Context, uri string) (*DatabaseClient, error)
 	}
 	databaseClient.carMetricsRepository = carMetricsRepository
 
+	foxgloveConfigRepository, err := repository.NewMongoFoxgloveConfigRepository(client, vehicleDataDatabase)
+	if err != nil {
+		return nil, fmt.Errorf("could not create foxgloveConfigRepository: %v", err)
+	}
+	databaseClient.foxgloveConfigRepository = foxgloveConfigRepository
+
 	return databaseClient, nil
 }
 
@@ -64,6 +71,11 @@ func (client *DatabaseClient) VehicleRunUseCase() *usecase.VehicleRunUseCase {
 
 func (client *DatabaseClient) CarMetricsUseCase() *usecase.CarMetricsUseCase {
 	return usecase.NewCarMetricsUseCase(client.carMetricsRepository)
+}
+
+
+func (client *DatabaseClient)FoxgloveConfigUseCase() *usecase.FoxgloveConfigsUseCase {
+	return usecase.NewFoxgloveConfigsUseCase(client.foxgloveConfigRepository)
 }
 
 func (client *DatabaseClient) Disonnect(ctx context.Context) error {
