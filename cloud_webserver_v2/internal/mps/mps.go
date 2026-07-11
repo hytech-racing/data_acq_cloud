@@ -148,13 +148,14 @@ func NewMatlabClient(dbClient *database.DatabaseClient, mpsBaseUrl string, pollD
 
 	if err != nil {
 		log.Printf("mps client error connecting to %s: %v", mpsBaseUrl, err)
+	} else {
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			log.Printf("mps client error connecting to %s: unexpected status %d", mpsBaseUrl, resp.StatusCode)
+		} else {
+			log.Println("connected to mps")
+		}
 	}
-
-	if resp.StatusCode != 200 {
-		log.Printf("mps client error connecting to %s: %v", mpsBaseUrl, err)
-	}
-
-	log.Println("connected to mps")
 
 	return &MatlabClient{
 		mpsBaseUrl:     mpsBaseUrl,

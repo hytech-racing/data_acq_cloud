@@ -30,6 +30,7 @@ func NewS3Session(accessKey string, secretKey string, region string, bucket stri
 	// Create an aws s3 service client
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
+		o.UsePathStyle = true
 	})
 	presignClient := s3.NewPresignClient(client)
 
