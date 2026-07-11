@@ -307,7 +307,11 @@ func routeMCAPDecodedMessage(ctx context.Context, decodedMessage *utils.DecodedM
 		subscriberNames = append(subscriberNames, possibleRoutes...)
 	case "hytech_msgs.VNData":
 		subscriberNames = append(subscriberNames, messaging.LATLON, messaging.MATLAB)
+	case "hytech_msgs.VnInsData":
+		subscriberNames = append(subscriberNames, messaging.LATLON, messaging.MATLAB)
 	case "hytech_msgs.VehicleData":
+		subscriberNames = append(subscriberNames, messaging.VELOCITY, messaging.MATLAB)
+	case "htx_estimator_estimation_msgs.htx_estimator_Outports":
 		subscriberNames = append(subscriberNames, messaging.VELOCITY, messaging.MATLAB)
 	default:
 		subscriberNames = append(subscriberNames, messaging.MATLAB)

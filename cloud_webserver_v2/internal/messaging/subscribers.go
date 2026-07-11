@@ -65,9 +65,9 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 
 		data := msg.GetContent().Data
 
-		var lat float32
-		var lon float32
-		var ok bool
+		var lat float64
+		var lon float64
+		haveGPS := false
 
 		if gpsDynamicMessage, found := data["vn_gps"].(*dynamic.Message); found {
 			latFieldDescriptor := gpsDynamicMessage.FindFieldDescriptorByName("lat")
@@ -82,28 +82,53 @@ func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, resu
 				continue
 			}
 
-			if lat, ok = decodedLat.(float32); !ok {
-				log.Printf("lat is not a float, it is a: %v \n", reflect.TypeOf(lat))
+			latVal, ok := decodedLat.(float32)
+			if !ok {
+				log.Printf("lat is not a float32, it is a: %v \n", reflect.TypeOf(decodedLat))
 				continue
 			}
-			if lon, ok = decodedLon.(float32); !ok {
-				log.Printf("lon is not a float, it is a: %v \n", reflect.TypeOf(lon))
+			lonVal, ok := decodedLon.(float32)
+			if !ok {
+				log.Printf("lon is not a float32, it is a: %v \n", reflect.TypeOf(decodedLon))
 				continue
 			}
 
+			lat = float64(latVal)
+			lon = float64(lonVal)
+			haveGPS = true
+		} else if latRaw, found := data["lat_deg"]; found {
+			lonRaw, lonFound := data["lon_deg"]
+			if !lonFound {
+				continue
+			}
+
+			latVal, ok := latRaw.(float64)
+			if !ok {
+				log.Printf("lat_deg is not a float64, it is a: %v \n", reflect.TypeOf(latRaw))
+				continue
+			}
+			lonVal, ok := lonRaw.(float64)
+			if !ok {
+				log.Printf("lon_deg is not a float64, it is a: %v \n", reflect.TypeOf(lonRaw))
+				continue
+			}
+
+			lat = latVal
+			lon = lonVal
+			haveGPS = true
 		}
 
-		if lat == 0 || lon == 0 {
+		if !haveGPS || lat == 0 || lon == 0 {
 			continue
 		}
 
 		if first {
-			originLat = float64(lat)
-			originLon = float64(lon)
+			originLat = lat
+			originLon = lon
 			first = false
 		}
 
-		x, y := subscribers.LatLonToCartesian(float64(lat), float64(lon), originLat, originLon)
+		x, y := subscribers.LatLonToCartesian(lat, lon, originLat, originLon)
 
 		minX = math.Min(minX, x)
 		maxX = math.Max(maxX, x)
@@ -143,40 +168,49 @@ func PlotTimeVelocity(id int, subscriberName string, ch <-chan SubscribedMessage
 
 		data := msg.GetContent().Data
 
-		var fl float32
-		var fr float32
-		var rpm float32
+		var vel float64
 		var logTime uint64
-		var ok bool
+		haveVel := false
 
 		if veh_vec_floatDynamicMessage, found := data["current_rpms"].(*dynamic.Message); found {
-			fl_Descriptor := veh_vec_floatDynamicMessage.FindFieldDescriptorByName("FL")
 			fr_Descriptor := veh_vec_floatDynamicMessage.FindFieldDescriptorByName("FR")
-
-			if fl_Descriptor == nil || fr_Descriptor == nil {
+			if fr_Descriptor == nil {
 				continue
 			}
 
-			decodedFL := veh_vec_floatDynamicMessage.GetField(fl_Descriptor)
 			decodedFR := veh_vec_floatDynamicMessage.GetField(fr_Descriptor)
-			if decodedFL == nil || decodedFL == nil {
+			if decodedFR == nil {
 				continue
 			}
 
-			if fl, ok = decodedFL.(float32); !ok {
-				log.Printf("fl is not a float, it is a: %v \n", reflect.TypeOf(fl))
+			fr, ok := decodedFR.(float32)
+			if !ok {
+				log.Printf("fr is not a float32, it is a: %v \n", reflect.TypeOf(decodedFR))
 				continue
 			}
-			if fr, ok = decodedFR.(float32); !ok {
-				log.Printf("fr is not a float, it is a: %v \n", reflect.TypeOf(fr))
+			if fr == 0 {
 				continue
 			}
 
-			rpm = fr
+			vel = subscribers.RPMToLinearVelocity(fr)
 			logTime = msg.GetContent().LogTime
+			haveVel = true
+		} else if vxRaw, found := data["ekf_vx_m_s"]; found {
+			vx, ok := vxRaw.(float32)
+			if !ok {
+				log.Printf("ekf_vx_m_s is not a float32, it is a: %v \n", reflect.TypeOf(vxRaw))
+				continue
+			}
+			if vx == 0 {
+				continue
+			}
+
+			vel = float64(vx)
+			logTime = msg.GetContent().LogTime
+			haveVel = true
 		}
 
-		if rpm == 0 {
+		if !haveVel {
 			continue
 		}
 
@@ -185,7 +219,6 @@ func PlotTimeVelocity(id int, subscriberName string, ch <-chan SubscribedMessage
 			first = false
 		}
 
-		vel := subscribers.RPMToLinearVelocity(rpm)
 		time := subscribers.LogTimeToTime(logTime, initialTime)
 
 		minVel = math.Min(minVel, vel)
