@@ -28,7 +28,6 @@ func GenerateVelocityPlot(times, vels *[]float64, minTime, maxTime, minVel, maxV
 	p.Title.Text = "VN Velocity Data"
 	p.X.Label.Text = "time (s)"
 	p.Y.Label.Text = "velocity (m/s)"
-	p.HideAxes()
 
 	p.X.Min = minTime
 	p.Y.Min = minVel

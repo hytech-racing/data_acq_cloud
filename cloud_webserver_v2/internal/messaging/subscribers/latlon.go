@@ -40,7 +40,6 @@ func GenerateGonumPlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) (*io.W
 	p.Title.Text = "VN Position Data"
 	p.X.Label.Text = "x"
 	p.Y.Label.Text = "y"
-	p.HideAxes()
 
 	// Need to set the max/min for each axis of the plot or else the plot will be stretched.
 	min_value := math.Min(minX, minY)
