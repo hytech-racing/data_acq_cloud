@@ -7,6 +7,7 @@ import (
 
 	"go-hep.org/x/hep/hplot"
 	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/plotutil"
 	"gonum.org/v1/plot/vg"
 )
@@ -37,9 +38,36 @@ func LatLonToCartesian(lat, lon, originLat, originLon float64) (float64, float64
 // If successful, it returns a writer to the Gonum plot
 func GenerateGonumPlot(xs, ys *[]float64, minX, maxX, minY, maxY float64) (*io.WriterTo, error) {
 	p := plot.New()
-	p.Title.Text = "VN Position Data"
 	p.X.Label.Text = "x"
 	p.Y.Label.Text = "y"
+
+	// No valid GPS fix was recorded anywhere in this file (lat/lon stayed at 0
+	// the whole run, or every point got filtered out for some other reason).
+	// minX/maxX/minY/maxY never moved off their sentinel init values in that
+	// case, so plotting them directly would render axes spanning nearly the
+	// entire float64 range. Render an explicit "no data" plot instead.
+	if len(*xs) == 0 {
+		p.Title.Text = "VN Position Data - No GPS Fix Recorded"
+		p.X.Min, p.X.Max = -1, 1
+		p.Y.Min, p.Y.Max = -1, 1
+
+		label, err := plotter.NewLabels(plotter.XYLabels{
+			XYs:    []plotter.XY{{X: 0, Y: 0}},
+			Labels: []string{"No GPS fix recorded for this file"},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("could not create no-data label: %+v", err)
+		}
+		p.Add(label)
+
+		writer, err := p.WriterTo(25*vg.Centimeter, 25*vg.Centimeter, "png")
+		if err != nil {
+			return nil, fmt.Errorf("could not get plot writer: %+v", err)
+		}
+		return &writer, nil
+	}
+
+	p.Title.Text = "VN Position Data"
 
 	// Need to set the max/min for each axis of the plot or else the plot will be stretched.
 	min_value := math.Min(minX, minY)
