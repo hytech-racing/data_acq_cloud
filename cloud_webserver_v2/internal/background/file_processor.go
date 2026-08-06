@@ -174,7 +174,7 @@ func (fp *FileProcessor) EnqueueFile(fileHeader *multipart.FileHeader, processor
 		UpdatedAt: time.Now(),
 		FilePath:  filepath.Join(fp.directory, fmt.Sprintf("%s_%s", id, fileHeader.Filename)),
 		FileDir:   fp.directory,
-		Date:      time.Now(), // TODO: Change to date gotten from MCAP
+		Date:      time.Now(),
 		Processor: processor,
 	}
 

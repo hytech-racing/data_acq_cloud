@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
@@ -228,6 +229,16 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 	mcapReader, err := mcapUtils.NewReader(mcapFile)
 	if err != nil {
 		return nil, fmt.Errorf("could not create mcap reader: %v", err)
+	}
+
+	// job.Date defaults to upload time (set in EnqueueFile), which is wrong for
+	// any file uploaded on a different day than it was actually recorded - that
+	// silently breaks date-based search/filtering on the frontend. Now that the
+	// file is actually open, use the MCAP's own recorded start time instead.
+	if mcapReader.Info != nil && mcapReader.Info.Statistics != nil && mcapReader.Info.Statistics.MessageStartTime > 0 {
+		job.Date = time.Unix(0, int64(mcapReader.Info.Statistics.MessageStartTime)).UTC()
+	} else {
+		log.Printf("mcap file %v has no usable message start time in its statistics; falling back to upload time", job.Filename)
 	}
 
 	message_iterator, err := mcapReader.Reader.Messages()
