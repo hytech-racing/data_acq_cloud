@@ -62,7 +62,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	// Uploading MCAP file to S3
 	mcapFileS3Reader, err := os.Open(job.FilePath)
 	if err != nil {
-		log.Fatalf("could not open mcap file %v", job.FilePath)
+		return fmt.Errorf("could not open mcap file %v: %w", job.FilePath, err)
 	}
 	defer mcapFileS3Reader.Close()
 
@@ -71,14 +71,14 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	mcapObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
 	err = fp.s3Repository.WriteObjectReader(ctx, mcapFileS3Reader, mcapObjectFilePath)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to upload mcap file to s3: %w", err)
 	}
 	log.Printf("uploaded mcap file %v to s3", mcapFileName)
 
 	// Uploading HDF5 file to S3
 	hdf5File, err := os.Open(hdf5Location)
 	if err != nil {
-		log.Fatalf("could not open mat matFile: %v", err)
+		return fmt.Errorf("could not open hdf5 file %v: %w", hdf5Location, err)
 	}
 	defer hdf5File.Close()
 
@@ -86,7 +86,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	matObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), hdf5FileName)
 	err = fp.s3Repository.WriteObjectReader(ctx, hdf5File, matObjectFilePath)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to upload hdf5 file to s3: %w", err)
 	}
 	log.Printf("uploaded hdf5 file %v to s3", hdf5FileName)
 
@@ -95,7 +95,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	vnLatLonPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnLatLonPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to upload lat/lon plot to s3: %w", err)
 	}
 	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
 
@@ -104,7 +104,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	vnTimeVelPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnTimeVelPlotName)
 	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to upload velocity plot to s3: %w", err)
 	}
 	log.Printf("uploaded vn time vel plot %v to s3", vnTimeVelPlotName)
 
@@ -198,7 +198,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 
 	_, err = fp.dbClient.VehicleRunUseCase().CreateVehicleRun(ctx, vehicleRunModel)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to create vehicle run record in database: %w", err)
 	}
 
 	// Update the file processor's total size and estimated size after removing
