@@ -1,9 +1,11 @@
 package http
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -273,8 +275,32 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, response)
 }
 
+// checkDeleteAuth validates the X-Delete-Auth-Code header against the server-configured
+// DELETE_AUTH_CODE. This is the server-side enforcement of the same password the frontend
+// prompts for in DeleteData.tsx -- previously that check only existed client-side, which
+// meant the "password" baked into the public JS bundle was not actually protecting anything.
+// If DELETE_AUTH_CODE isn't configured, deletes are refused (fail closed) rather than left open.
+func (h *mcapHandler) checkDeleteAuth(r *http.Request) *HandlerError {
+	expected := os.Getenv("DELETE_AUTH_CODE")
+	if expected == "" {
+		log.Println("DELETE_AUTH_CODE is not set on the server; refusing delete request")
+		return NewHandlerError("delete is not configured on this server", http.StatusForbidden)
+	}
+
+	provided := r.Header.Get("X-Delete-Auth-Code")
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+		return NewHandlerError("invalid or missing delete authorization", http.StatusForbidden)
+	}
+
+	return nil
+}
+
 // DeleteMcapFromID takes in an ID from a URL param and deletes the MCAP information from MongoDB and from S3.
 func (h *mcapHandler) DeleteMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
+	if authErr := h.checkDeleteAuth(r); authErr != nil {
+		return authErr
+	}
+
 	ctx := r.Context()
 
 	mcapId := chi.URLParam(r, "id")
