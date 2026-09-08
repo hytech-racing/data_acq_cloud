@@ -60,6 +60,7 @@ func NewMcapHandler(
 		// static routes
 		r.Get("/", handler.GetMcapsFromFilters)
 		r.Get("/status", HandlerFunc(handler.CheckFileStatus).ServeHTTP)
+		r.Get("/pending", handler.GetInProgressMcaps)
 
 		// parameterized routes
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
@@ -186,6 +187,10 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 	data["data"] = res
 	data["message"] = make(map[string]interface{})
 	render.JSON(w, r, data)
+}
+
+func (h *mcapHandler) GetInProgressMcaps(w http.ResponseWriter, r *http.Request) {
+	render.JSON(w, r, h.fileProcessor.GetInProgressMcapFileUploads())
 }
 
 // GetMcapFromID takes in an ID from a URL param and responds with an MCAP with that ID.

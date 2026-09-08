@@ -72,8 +72,8 @@ type FileProcessor struct {
 	// maxTotalSize is the total capacity of files we can hold in queue
 	maxTotalSize int64
 
-	// activelyProcessing is used to show whether we are actively processing a FileJob
-	activelyProcessing bool
+	// A map between the job ID of a pending MCAP file conversion, and the name of the MCAP file.
+	pendingMcapFileUploads map[string]string
 }
 
 // FileJob contians all the logic and metadata for completing a job related to files.
@@ -204,7 +204,7 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 	for {
 		// Ensures that only 1 file is being processed at a time (to save resources)
 		// And that a file currently being processed tries to finish
-		if fp.activelyProcessing {
+		if len(fp.pendingMcapFileUploads) > 0 {
 			time.Sleep(5 * time.Second)
 		}
 		select {
@@ -232,12 +232,30 @@ func (fp *FileProcessor) updateJobStatus(job *FileJob, status string) {
 	job.UpdatedAt = time.Now()
 }
 
-// setCurrentlyProcessing is threadsafe and sets the activelyProcessing bool.
-func (fp *FileProcessor) setCurrentlyProcessing(flag bool) {
+func (fp *FileProcessor) addInProgressMcapFileUpload(jobId string, mcapFileName string) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
-	log.Printf("Updating file processor currently processing to %v", flag)
-	fp.activelyProcessing = flag
+	log.Printf("Marking mcap file %v as in-progress for upload", mcapFileName)
+	fp.pendingMcapFileUploads[jobId] = mcapFileName
+}
+
+func (fp *FileProcessor) removeInProgressMcapFileUpload(jobId string) {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+	log.Printf("Marking job ID %v as done", jobId)
+	delete(fp.pendingMcapFileUploads, jobId)
+}
+
+func (fp *FileProcessor) GetInProgressMcapFileUploads() []string {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+	fileNames := make([]string, len(fp.pendingMcapFileUploads))
+	i := 0
+	for _, fileName := range fp.pendingMcapFileUploads {
+		fileNames[i] = fileName
+		i++
+	}
+	return fileNames
 }
 
 // Start takes in context.Context and strats the FileProcessor.
