@@ -191,7 +191,6 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		McapFiles:    mcapFiles,
 		MatFiles:     matFiles,
 		ContentFiles: contentFiles,
-		MpsRecord:    models.MpsRecordModel{},
 		Id:           recordId,
 	}
 

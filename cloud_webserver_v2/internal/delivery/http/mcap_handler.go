@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,7 +12,6 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/mps"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -33,7 +31,6 @@ type mcapHandler struct {
 	s3Repository  *s3.S3Repository
 	dbClient      *database.DatabaseClient
 	fileProcessor *background.FileProcessor
-	mpsClient     *mps.MatlabClient
 }
 
 func NewMcapHandler(
@@ -42,13 +39,11 @@ func NewMcapHandler(
 	dbClient *database.DatabaseClient,
 	fileProcessor *background.FileProcessor,
 	fileUploadMiddleware *hytech_middleware.FileUploadMiddleware,
-	mpsClient *mps.MatlabClient,
 ) {
 	handler := &mcapHandler{
 		s3Repository:  s3Repository,
 		dbClient:      dbClient,
 		fileProcessor: fileProcessor,
-		mpsClient:     mpsClient,
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
@@ -64,7 +59,6 @@ func NewMcapHandler(
 		// parameterized routes
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
 		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
-		r.Get("/{id}/process", HandlerFunc(handler.ProcessMatlabJob).ServeHTTP)
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
 		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
@@ -165,11 +159,6 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 	if queryParams.Has("search_text") {
 		search_text := queryParams.Get("search_text")
 		filters.SearchText = &search_text
-	}
-
-	if queryParams.Has("mps_function") {
-		mps_function := queryParams.Get("mps_function")
-		filters.MpsFunction = &mps_function
 	}
 
 	resModels, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
@@ -326,54 +315,6 @@ func (h *mcapHandler) DeleteMcapFromID(w http.ResponseWriter, r *http.Request) *
 	return nil
 }
 
-func (h *mcapHandler) ProcessMatlabJob(w http.ResponseWriter, r *http.Request) *HandlerError {
-	ctx := r.Context()
-
-	scriptsParam := r.URL.Query().Get("scripts")
-	if scriptsParam == "" {
-		return NewHandlerError("invalid request, must pass in query param scripts with a value of comma seperated script names", http.StatusBadRequest)
-	}
-	scripts := strings.Split(scriptsParam, ",")
-
-	versionParam := r.URL.Query().Get("version")
-	if versionParam == "" {
-		return NewHandlerError("invalid request, must pass in archive version in query params", http.StatusBadRequest)
-	}
-
-	mcapId := chi.URLParam(r, "id")
-	if mcapId == "" {
-		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
-	}
-
-	objectId, err := primitive.ObjectIDFromHex(mcapId)
-	if err != nil {
-		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
-	}
-
-	mcap, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
-	if err != nil {
-		if err.Error() == "mongo: no documents in result" {
-			return NewHandlerError(fmt.Sprintf("no run with id %v found", mcapId), http.StatusNotFound)
-		}
-		return NewHandlerError(err.Error(), http.StatusInternalServerError)
-	}
-	responseMcap := models.VehicleRunSerialize(ctx, h.s3Repository, *mcap)
-
-	matFiles := responseMcap.MatFiles
-
-	if len(matFiles) == 0 {
-		return NewHandlerError("no h5 files found", http.StatusFailedDependency)
-	}
-
-	for _, script := range scripts {
-		h.mpsClient.SubmitMatlabJob(ctx, h.s3Repository, mcapId, versionParam, script)
-	}
-
-	render.JSON(w, r, "jobs submitted")
-
-	return nil
-}
-
 // UpdateMetadataRecordFromID takes in an ID from a URL param and formdata that determines which metadata to update in our VehicleRunModels.
 func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
@@ -399,37 +340,22 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 	}
 
 	for key, values := range r.Form {
-		if strings.HasPrefix(key, "mps.") {
-			// TODO: Figure out if updating MPS with an HTTP request is needed
-
-			// mpsMetadata := make(map[string]interface{})
-			// mpsMetadata[strings.TrimPrefix(key, "mps.")] = values[0]
-
-			// if runModel.MpsRecord == nil {
-			// 	runModel.MpsRecord = make(map[string]models.MpsScripts)
-			// }
-
-			// for function, record := range mpsMetadata {
-			// 	runModel.MpsRecord[function] = record
-			// }
-		} else {
-			switch key {
-			case "date":
-				layout := time.RFC3339
-				parsedDate, err := time.Parse(layout, values[0])
-				if err != nil {
-					return NewHandlerError(fmt.Sprintf("invalid date format: %v", err), http.StatusBadRequest)
-				}
-				runModel.Date = parsedDate
-			case "location":
-				runModel.Location = &values[0]
-			case "notes":
-				runModel.Notes = &values[0]
-			case "event_type":
-				runModel.EventType = &values[0]
-			case "car_model":
-				runModel.CarModel = values[0]
+		switch key {
+		case "date":
+			layout := time.RFC3339
+			parsedDate, err := time.Parse(layout, values[0])
+			if err != nil {
+				return NewHandlerError(fmt.Sprintf("invalid date format: %v", err), http.StatusBadRequest)
 			}
+			runModel.Date = parsedDate
+		case "location":
+			runModel.Location = &values[0]
+		case "notes":
+			runModel.Notes = &values[0]
+		case "event_type":
+			runModel.EventType = &values[0]
+		case "car_model":
+			runModel.CarModel = values[0]
 		}
 	}
 
@@ -472,9 +398,6 @@ func (h *mcapHandler) ResetMetadataRecordFromID(w http.ResponseWriter, r *http.R
 		runModel.Location = nil
 	case "event_type":
 		runModel.EventType = nil
-	// TODO: Figure out if updating MPS with an HTTP request is needed
-	// case "mps_record":
-	// 	runModel.MpsRecord = make(map[string]interface{})
 	case "car_model":
 		runModel.CarModel = ""
 	default:
