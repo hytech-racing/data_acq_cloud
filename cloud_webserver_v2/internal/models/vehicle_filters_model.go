@@ -16,5 +16,4 @@ type VehicleRunModelFilters struct {
 	EventType   *string             `bson:"event_type",omitempty`
 	CarModel    *string             `bson:"car_model",omitempty`
 	SearchText  *string
-	MpsFunction *string `bson:"mps_function,omitempty"`
 }
