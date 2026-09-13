@@ -25,7 +25,7 @@ type PostProcessMCAPUploadJob struct{}
 // It also saves all this information to the database and stores files on S3.
 func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJob) error {
 	ctx := context.Background()
-	fp.setCurrentlyProcessing(true)
+	fp.markFileAsUploadPending(job.ID, job.Filename)
 	fp.updateJobStatus(job, StatusProcessing)
 
 	genericFileName := strings.Split(job.Filename, ".")[0]
@@ -203,7 +203,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	fp.TotalSize.Add(-job.Size)
 	fp.MiddlewareEstimatedSize.Add(-job.Size)
 	fp.updateJobStatus(job, StatusCompleted)
-	fp.setCurrentlyProcessing(false)
+	fp.broadcastUploadedMcap(ctx, vehicleRunModel)
 
 	log.Printf("Completed job %v", job.ID)
 	return nil

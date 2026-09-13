@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 )
@@ -63,6 +64,9 @@ type FileProcessor struct {
 	// Every once in a while, the TotalSize and MiddlewareEstimatedSize are sycned
 	TotalSize atomic.Int64
 
+	// Keeps track of uploads that are still in-progress
+	PendingMcapFileUploads map[string]struct{}
+
 	// processingWg is a WaitGroup used to make sure we complete the last task before gracefuly exiting
 	processingWg sync.WaitGroup
 
@@ -72,8 +76,8 @@ type FileProcessor struct {
 	// maxTotalSize is the total capacity of files we can hold in queue
 	maxTotalSize int64
 
-	// activelyProcessing is used to show whether we are actively processing a FileJob
-	activelyProcessing bool
+	// mcapStatusBroadcaster broadcasts updates about in-progress MCAP uploads to SSE subscribers.
+	mcapStatusBroadcaster *McapStatusBroadcaster
 }
 
 // FileJob contians all the logic and metadata for completing a job related to files.
@@ -122,14 +126,16 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 	}
 
 	fp := &FileProcessor{
-		directory:     uploadDir,
-		fileQueueChan: make(chan *FileJob, 100),
-		stopChan:      make(chan bool),
-		processingWg:  sync.WaitGroup{},
-		mu:            sync.RWMutex{},
-		maxTotalSize:  maxTotalSize,
-		dbClient:      dbClient,
-		s3Repository:  s3Repository,
+		directory:             uploadDir,
+		fileQueueChan:         make(chan *FileJob, 100),
+		stopChan:              make(chan bool),
+		processingWg:          sync.WaitGroup{},
+		mu:                    sync.RWMutex{},
+		maxTotalSize:          maxTotalSize,
+		dbClient:              dbClient,
+		s3Repository:          s3Repository,
+		mcapStatusBroadcaster: NewMcapStatusBroadcaster(),
+		PendingMcapFileUploads: make(map[string]struct{}),
 	}
 
 	var totalSize int64
@@ -204,7 +210,7 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 	for {
 		// Ensures that only 1 file is being processed at a time (to save resources)
 		// And that a file currently being processed tries to finish
-		if fp.activelyProcessing {
+		if len(fp.PendingMcapFileUploads) > 0 {
 			time.Sleep(5 * time.Second)
 		}
 		select {
@@ -232,12 +238,37 @@ func (fp *FileProcessor) updateJobStatus(job *FileJob, status string) {
 	job.UpdatedAt = time.Now()
 }
 
-// setCurrentlyProcessing is threadsafe and sets the activelyProcessing bool.
-func (fp *FileProcessor) setCurrentlyProcessing(flag bool) {
+func (fp *FileProcessor) markFileAsUploadPending(jobId string, mcapFileName string) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
-	log.Printf("Updating file processor currently processing to %v", flag)
-	fp.activelyProcessing = flag
+	log.Printf("Marking mcap file %v as in-progress for upload", mcapFileName)
+	fp.PendingMcapFileUploads[mcapFileName] = struct{}{}
+	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
+		Status: McapStatusPending,
+		Name:   mcapFileName,
+	})
+}
+
+func (fp *FileProcessor) broadcastUploadedMcap(ctx context.Context, vehicleRunModel *models.VehicleRunModel) {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+
+	serialized := models.VehicleRunSerialize(ctx, fp.s3Repository, *vehicleRunModel)
+	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
+		Status: McapStatusUploaded,
+		Data:   serialized,
+	})
+	fileName := serialized.McapFiles[0].FileName
+	delete(fp.PendingMcapFileUploads, fileName)
+	log.Printf("File %v is marked as done", fileName)
+}
+
+func (fp *FileProcessor) SubscribeToMcapStatus() chan []byte {
+	return fp.mcapStatusBroadcaster.Subscribe()
+}
+
+func (fp *FileProcessor) UnsubscribeFromMcapStatus(subscriber chan []byte) {
+	fp.mcapStatusBroadcaster.Unsubscribe(subscriber)
 }
 
 // Start takes in context.Context and strats the FileProcessor.
