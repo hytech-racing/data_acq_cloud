@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/auth"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
@@ -125,20 +126,33 @@ func main() {
 		FileProcessor: fileProcessor,
 	}
 
+	// Setup Georgia Tech CAS single sign-on
+	authConfig, err := auth.ConfigFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Sessions live in memory for now, this is fine for a single server instance.
+	sessionStore := auth.NewMemorySessionStore(authConfig.SessionTTL)
+	defer sessionStore.Close()
+	log.Println("Configured Georgia Tech SSO...")
+
 	router := chi.NewRouter()
 
 	// CORS Setup
 	router.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://hytech-racing.github.io", "http://localhost:5173"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: false,
+		AllowedOrigins: []string{"https://hytech-racing.github.io", "http://localhost:5173"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders: []string{"Link"},
+		// Credentials must be allowed so the browser sends and stores the session cookie
+		AllowCredentials: true,
 		MaxAge:           300, // Maximum value not ignored by any of major browsers
 	}))
 
 	// Simple middleware stack
-	router.Use(middleware.Logger)
+	// The redacting formatter keeps single-use CAS service tickets out of the request log.
+	router.Use(middleware.RequestLogger(hytech_middleware.NewRedactingLogFormatter()))
 	router.Use(middleware.Heartbeat("/ping"))
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
@@ -159,6 +173,7 @@ func main() {
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
+	handler.NewAuthHandler(router, authConfig, sessionStore)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
@@ -174,6 +189,8 @@ func main() {
 		fileProcessor.Stop()
 
 		proto_listener.Stop()
+
+		sessionStore.Close()
 
 		// Gracefully disconnect from MongoDB
 		mongoShutdownCtx, mongoShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
