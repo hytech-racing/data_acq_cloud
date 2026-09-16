@@ -36,7 +36,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 
 	// Extracting HDF5 file location from results
 	var hdf5Location string
-	if outer, ok := mcapResults[messaging.MATLAB]; ok {
+	if outer, ok := mcapResults[messaging.HDF5]; ok {
 		if data, ok := outer.ResultData["file_path"]; ok {
 			hdf5Location = data.(string)
 		}
@@ -238,7 +238,7 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 	subscriberMapping := make(map[string]messaging.SubscriberFunc)
 	subscriberMapping[messaging.LATLON] = messaging.PlotLatLon
 	subscriberMapping[messaging.VELOCITY] = messaging.PlotTimeVelocity
-	subscriberMapping[messaging.MATLAB] = messaging.CreateRawMatlabFile
+	subscriberMapping[messaging.HDF5] = messaging.CreateRawHDF5File
 
 	publisher := messaging.NewPublisher().WithRouter(routeMCAPDecodedMessage).WithResultsListener()
 	subscriber_names := make([]string, len(subscriberMapping))
@@ -305,11 +305,11 @@ func routeMCAPDecodedMessage(ctx context.Context, decodedMessage *utils.DecodedM
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, possibleRoutes...)
 	case "hytech_msgs.VNData":
-		subscriberNames = append(subscriberNames, messaging.LATLON, messaging.MATLAB)
+		subscriberNames = append(subscriberNames, messaging.LATLON, messaging.HDF5)
 	case "hytech_msgs.VehicleData":
-		subscriberNames = append(subscriberNames, messaging.VELOCITY, messaging.MATLAB)
+		subscriberNames = append(subscriberNames, messaging.VELOCITY, messaging.HDF5)
 	default:
-		subscriberNames = append(subscriberNames, messaging.MATLAB)
+		subscriberNames = append(subscriberNames, messaging.HDF5)
 	}
 
 	return subscriberNames

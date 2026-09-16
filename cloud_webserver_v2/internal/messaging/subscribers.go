@@ -28,7 +28,7 @@ const (
 const (
 	LATLON   = "vn_plot"
 	VELOCITY = "velocity_plot"
-	MATLAB   = "matlab_writer"
+	HDF5     = "matlab_writer"
 )
 
 // Subscriber function type serves as a common header for all subscribers to a publisher
@@ -211,39 +211,8 @@ func PlotTimeVelocity(id int, subscriberName string, ch <-chan SubscribedMessage
 	}
 }
 
-func CreateInterpolatedMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
-	var matlabWriter *subscribers.InterpolatedMatlabWriter
-	for msg := range ch {
-		if msg.GetContent().Topic == EOF {
-			break
-		} else if msg.GetContent().Topic == INIT {
-			schema, err := getInterpolatedSchemaMap(&msg)
-			if err != nil {
-				log.Panic("could not get mcap schema map")
-			}
-			matlabWriter = subscribers.CreateInterpolatedMatlabWriter(0.001, schema)
-		} else {
-			if matlabWriter != nil {
-				matlabWriter.AddSignalValue(msg.GetContent())
-			}
-		}
-	}
-
-	if matlabWriter != nil {
-		matlabWriter.InterpolateEndOfSignalSlices()
-	}
-
-	result := make(map[string]interface{})
-	allSignalData := matlabWriter.GetAllSignalData()
-	result["interpolated_data"] = &allSignalData
-
-	if results != nil {
-		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
-	}
-}
-
-func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
-	var matlabWriter *subscribers.RawMatlabWriter
+func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	var hdf5Writer *subscribers.RawHDF5Writer
 	var fileName string
 	var filePath string
 	for msg := range ch {
@@ -262,14 +231,14 @@ func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMess
 				break
 			}
 			var err error
-			matlabWriter, err = subscribers.CreateRawMatlabWriter(filePath, fileName)
+			hdf5Writer, err = subscribers.CreateRawHDF5Writer(filePath, fileName)
 			if err != nil {
 				log.Printf("could not start matlab worker: %v", err)
 				break
 			}
 		} else {
-			if matlabWriter != nil {
-				err := matlabWriter.AddSignalValue(msg.GetContent())
+			if hdf5Writer != nil {
+				err := hdf5Writer.AddSignalValue(msg.GetContent())
 				if err != nil {
 					log.Fatalf("AddSignalValue error: %v", err)
 				}
@@ -277,20 +246,20 @@ func CreateRawMatlabFile(id int, subscriberName string, ch <-chan SubscribedMess
 		}
 	}
 
-	if matlabWriter.MaxSignalLength() > 0 {
-		err := matlabWriter.HDF5Writer.ChunkWrite(matlabWriter.AllSignalData())
+	if hdf5Writer.MaxSignalLength() > 0 {
+		err := hdf5Writer.HDF5Writer.ChunkWrite(hdf5Writer.AllSignalData())
 		if err != nil {
 			log.Printf("could not chunk write hdf5 file: %v", err)
 		}
 
-		err = matlabWriter.HDF5Writer.Close()
+		err = hdf5Writer.HDF5Writer.Close()
 		if err != nil {
 			log.Printf("could not close hdf5 file: %v", err)
 		}
 	}
 
 	result := make(map[string]interface{})
-	result["file_path"] = matlabWriter.FilePath()
+	result["file_path"] = hdf5Writer.FilePath()
 	if results != nil {
 		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
 	}
