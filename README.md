@@ -5,10 +5,9 @@ this repo contains the infrastructure that will be running in the cloud for ease
 requirements:
 0. linux or MacOs environment (WSL works for windows)
 
-1. [docker engine installed](https://docs.docker.com/engine/install/) 
-    - NOTE: dont install docker desktop
+1. [docker engine installed](https://docs.docker.com/engine/install/)
 
-2. nix installed and enable flakes:
+2. Optional: nix installed and enable flakes:
 
     a. [install nix](https://nixos.org/download)
 
@@ -20,11 +19,52 @@ requirements:
         experimental-features = nix-command flakes
         ```
 
-## Development Guide:
+## Running the server locally
 
-- to run the local cloud webserver and database, run `./cloud_webserver/bin/docker_up.sh dev`.
-  - If you are running this for the first time, it will take a while because it is creating and populating a local database for you to use.
-- to shutdown the server and database containers, run `./cloud_webserver/bin/docker_down.sh dev`
+### Starting a MinIO instance
+
+First, create a local MinIO instance as a local proxy for an AWS S3 object store:
+
+```bash
+docker run -d --name local-s3 -p 0.0.0.0:9000:9000 -p '[::1]:9000:9000' -p 9001:9001 \
+  -e "MINIO_ROOT_USER=minioadmin" \
+  -e "MINIO_ROOT_PASSWORD=minioadmin" \
+  coollabsio/minio server /data --console-address ":9001"
+```
+
+Then, navigate to `localhost:9001` and log in with a username and password of `minioadmin`. Create a bucket
+named `hytech_runs`.
+
+### Starting a MongoDB instance
+
+Run `docker system info --format '{{.KernelVersion}}'` in the terminal. If the linux kernel version 
+is greater than `7.0.13` or less than `6.19` (not inclusive), you can run `./cloud_webserver/bin/docker_up.sh dev`
+to create and start a local mongodb instance. 
+
+Otherwise, you have to start a mongodb instance yourself (look at the mongodb docs if you're confused). After 
+creating the instance, run `mongosh`, then `use hytech_db`, and finally `db.getMongo().getURI()`. Ensure that
+what you get is something similar to `mongodb://127.0.0.1:27017`.
+
+### Running the server
+
+Create a `.env` file in the `cloud_webserver_v2` directory, and fill it with the following:
+```bash
+MONGODB_URI=mongodb://host.docker.internal:27017/?maxIdleTimeMS=30000&connectTimeoutMS=5000&serverSelectionTimeoutMS=5000&retryWrites=true
+AWS_REGION=us-east-1
+AWS_S3_RUN_BUCKET=hytech-runs
+AWS_S3_ENDPOINT=http://host.docker.internal:9000
+AWS_ACCESS_KEY=minioadmin
+AWS_SECRET_KEY=minioadmin
+ENV=dev
+USING_NON_AWS_COMPATIBLE_STORE=true
+```
+
+Navigate to the `cloud_webserver_v2` directory, and run `docker compose up --build`. The server should be available at `http://localhost:8080`.
+
+Note: this dev setup currently does not support downloading files or viewing graph previews on the `query-frontend`. Visit `http://localhost:9001`
+to download these files instead.  
+
+## Docker-hosted MongoDB Dev Guide:
 
 - to enter the docker container and run commands to interact with the database using `mongosh`: 
 ```
@@ -126,7 +166,6 @@ subgraph data provision
     aws2 <-.user MAT query.-> mat[MAT file builder]
     mat -.-> file_serv
     aws2 <-.user MCAP query.-> file_serv[file download link]
-    file_serv -.-> matlab
     file_serv -.-> python
     file_serv -.-> foxglove
 end

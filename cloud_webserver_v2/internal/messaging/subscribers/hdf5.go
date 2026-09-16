@@ -13,7 +13,7 @@ import (
 // This constructs a HDF5 file with a stream of messages it gets from a MCAP file.
 // It chunk writes to the HDF5 file in groups.
 // It does this by saving information into allSignalData and occasionally chunk writes all the data into the HDF5 file.
-type RawMatlabWriter struct {
+type RawHDF5Writer struct {
 	firstTime       *float64
 	HDF5Writer      *utils.HDF5Writer
 	allSignalData   map[string]map[string]interface{}
@@ -22,7 +22,7 @@ type RawMatlabWriter struct {
 	maxSignalLength int // Constantly updated so we know what the max len of a data slice is
 }
 
-func CreateRawMatlabWriter(filePath, fileName string) (*RawMatlabWriter, error) {
+func CreateRawHDF5Writer(filePath, fileName string) (*RawHDF5Writer, error) {
 	hdf5Location := fmt.Sprintf("%s/%s.h5", filePath, fileName)
 	log.Println(hdf5Location)
 	hdf5Writer, err := utils.NewHDF5Writer(hdf5Location)
@@ -30,7 +30,7 @@ func CreateRawMatlabWriter(filePath, fileName string) (*RawMatlabWriter, error) 
 		return nil, err
 	}
 
-	return &RawMatlabWriter{
+	return &RawHDF5Writer{
 		allSignalData:   make(map[string]map[string]interface{}),
 		firstTime:       nil,
 		failedMessages:  make([][2]interface{}, 0),
@@ -44,7 +44,7 @@ func CreateRawMatlabWriter(filePath, fileName string) (*RawMatlabWriter, error) 
 // If there exists a slice of signal values in allSignalData whose length is greater than
 // maxSignalLength, then AddSignalValue will chunk write all the data in allSignalData to the
 // currently open HDF5 file.
-func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) error {
+func (w *RawHDF5Writer) AddSignalValue(decodedMessage *utils.DecodedMessage) error {
 	if decodedMessage == nil || decodedMessage.Data == nil {
 		return nil
 	}
@@ -81,7 +81,7 @@ func (w *RawMatlabWriter) AddSignalValue(decodedMessage *utils.DecodedMessage) e
 }
 
 // processSignalValue handles logic for whether to continue to dynamically decode the protobuf value or to directly add it to allSignalData
-func (w *RawMatlabWriter) processSignalValue(topic, signalName, signalPath string, value interface{}, logTime float64) {
+func (w *RawHDF5Writer) processSignalValue(topic, signalName, signalPath string, value interface{}, logTime float64) {
 	switch value.(type) {
 	case *dynamic.Message: // Dynamic message
 		if w.allSignalData[topic][signalName] == nil {
@@ -125,7 +125,7 @@ func (w *RawMatlabWriter) processSignalValue(topic, signalName, signalPath strin
 // Func addJSONValues takes in decodedValue as a map and adds the values in the givenMap
 // JSON messages ALWAYS come in maps of map -- example down below:
 // &{map[ConfigureableTest:map[test_bool:false test_double:2 test_float:1 test_int:2 test_string:asdf]] drivebrain_configuration 1741122430108270412}
-func (w *RawMatlabWriter) addJSONValues(decodedValue map[string]interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
+func (w *RawHDF5Writer) addJSONValues(decodedValue map[string]interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
 	baseSignalPath := signalPath
 	for rawSignalName, value := range decodedValue {
 		signalName := strings.ReplaceAll(rawSignalName, "/", "_")
@@ -148,7 +148,7 @@ func (w *RawMatlabWriter) addJSONValues(decodedValue map[string]interface{}, giv
 }
 
 // addDynamicSliceValues process signals of Dynamic repeated/slice value
-func (w *RawMatlabWriter) addDynamicSliceValues(fieldName string, decodedValue interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
+func (w *RawHDF5Writer) addDynamicSliceValues(fieldName string, decodedValue interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
 	baseSignalPath := signalPath
 	unboxedNestedArr, _ := decodedValue.([]*dynamic.Message)
 	for i, unboxedNested := range unboxedNestedArr {
@@ -165,7 +165,7 @@ func (w *RawMatlabWriter) addDynamicSliceValues(fieldName string, decodedValue i
 }
 
 // addNondynamicSliceValues process signals of Nondynamic repeated/slice value
-func (w *RawMatlabWriter) addNondynamicSliceValues(fieldName string, decodedValue interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
+func (w *RawHDF5Writer) addNondynamicSliceValues(fieldName string, decodedValue interface{}, givenMap map[string]interface{}, signalPath string, logTime float64) {
 	baseSignalPath := signalPath
 
 	length := len(decodedValue.([]interface{}))
@@ -192,7 +192,7 @@ func (w *RawMatlabWriter) addNondynamicSliceValues(fieldName string, decodedValu
 }
 
 // Function to add nested values from dynamic message fields recursively
-func (w *RawMatlabWriter) addNestedValues(signalPath string, nestedMap map[string]interface{}, dynamicMessage *dynamic.Message, logTime float64) {
+func (w *RawHDF5Writer) addNestedValues(signalPath string, nestedMap map[string]interface{}, dynamicMessage *dynamic.Message, logTime float64) {
 	if dynamicMessage == nil {
 		return
 	}
@@ -273,14 +273,14 @@ func (w *RawMatlabWriter) addNestedValues(signalPath string, nestedMap map[strin
 	}
 }
 
-func (w *RawMatlabWriter) AllSignalData() map[string]map[string]interface{} {
+func (w *RawHDF5Writer) AllSignalData() map[string]map[string]interface{} {
 	return w.allSignalData
 }
 
-func (w *RawMatlabWriter) MaxSignalLength() int {
+func (w *RawHDF5Writer) MaxSignalLength() int {
 	return w.maxSignalLength
 }
 
-func (w *RawMatlabWriter) FilePath() string {
+func (w *RawHDF5Writer) FilePath() string {
 	return w.filePath
 }

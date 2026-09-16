@@ -103,11 +103,6 @@ func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters
 		bson_filters_m["event_type"] = bson.M{"$regex": primitive.Regex{Pattern: *filters.EventType, Options: "i"}}
 	}
 
-	// Filters if the object contains our wanted function
-	if filters.MpsFunction != nil {
-		bson_filters_m["mps_record."+*filters.MpsFunction] = bson.M{"$exists": true}
-	}
-
 	if len(bson_or) != 0 {
 		bson_filters_m["$or"] = bson_or
 	}

@@ -17,7 +17,7 @@ type s3Session struct {
 	bucket        string
 }
 
-func NewS3Session(accessKey string, secretKey string, region string, bucket string, endpoint string) *S3Repository {
+func NewS3Session(accessKey string, secretKey string, region string, bucket string, endpoint string, nonAwsS3Store bool) *S3Repository {
 	staticCreds := credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion(region),
@@ -30,6 +30,7 @@ func NewS3Session(accessKey string, secretKey string, region string, bucket stri
 	// Create an aws s3 service client
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
+		o.UsePathStyle = nonAwsS3Store
 	})
 	presignClient := s3.NewPresignClient(client)
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -18,7 +19,6 @@ import (
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/logging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/mps"
 	proto_sync "github.com/hytech-racing/cloud-webserver-v2/internal/proto_sync"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 	"github.com/joho/godotenv"
@@ -70,10 +70,6 @@ func main() {
 	}
 	log.Println("Connected to database...")
 
-	// Setup MPS
-	mpsURI := os.Getenv("MATLAB_URI")
-	mpsClient := mps.NewMatlabClient(dbClient, mpsURI, 1*time.Second)
-
 	// Setup aws s3 connection
 	awsRegion := os.Getenv("AWS_REGION")
 	if awsRegion == "" {
@@ -100,8 +96,13 @@ func main() {
 		log.Fatal("could not get aws s3 endpoint environment variable")
 	}
 
+	nonAwsS3Store, err := strconv.ParseBool(os.Getenv("USING_NON_AWS_COMPATIBLE_STORE"))
+	if err != nil {
+		nonAwsS3Store = false
+	}
+
 	// We are creating one connection to AWS S3 and passing that around to all the methods to save resources
-	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket, awsS3EndPoint)
+	s3Repository := s3.NewS3Session(awsAccessKey, awsSecretKey, awsRegion, awsBucket, awsS3EndPoint, nonAwsS3Store)
 	log.Println("Started S3 session...")
 
 	// Adding HT_Proto Listener...
@@ -154,7 +155,7 @@ func main() {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, mpsClient)
+	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
