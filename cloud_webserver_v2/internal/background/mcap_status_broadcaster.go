@@ -6,19 +6,15 @@ import (
 	"sync"
 )
 
-// The statuses broadcast by the MCAP upload SSE endpoint.
-const (
-	McapStatusPending  = "pending"
-	McapStatusUploaded = "uploaded"
-)
-
 // A McapStatusEvent is the payload sent to subscribers of the MCAP upload SSE endpoint.
-// A "pending" event carries the name of a file that started processing, while an "uploaded"
-// event carries the serialized MCAP data for a file that finished processing.
+// A status = "processing" event carries the name of a file that started processing, 
+// A status = "completed" event carries the serialized MCAP data for a file that finished processing,
+// and a status = "failed" event carries the respective error.
 type McapStatusEvent struct {
 	Status string      `json:"status"`
 	Name   string      `json:"name,omitempty"`
 	Data   interface{} `json:"data,omitempty"`
+	Error  string      `json:"error,omitempty"`
 }
 
 // McapStatusBroadcaster is a simple pub/sub used to broadcast MCAP upload status updates

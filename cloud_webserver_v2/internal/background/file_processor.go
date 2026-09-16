@@ -220,47 +220,53 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 			return
 		case job := <-fp.fileQueueChan:
 			if err := job.Processor.ProcessFileJob(fp, job); err != nil {
-				log.Printf("Failed to process file %s: %v", job.Filename, err)
-				fp.updateJobStatus(job, StatusFailed)
-				// TODO: Add job status to database
+				fp.broadcastFileUploadError(job, err)
 			}
 		}
 	}
 }
 
-// updateJobStatus is threadsafe and updates the status of a FileJob.
-func (fp *FileProcessor) updateJobStatus(job *FileJob, status string) {
+func (fp *FileProcessor) broadcastFileUploadStart(job *FileJob) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
 
-	log.Printf("Updating job %s status to %s", job.ID, status)
-	job.Status = status
+	log.Printf("MCAP File %v is being uploaded.", job.Filename)
+	job.Status = StatusProcessing
 	job.UpdatedAt = time.Now()
-}
-
-func (fp *FileProcessor) markFileAsUploadPending(jobId string, mcapFileName string) {
-	fp.mu.Lock()
-	defer fp.mu.Unlock()
-	log.Printf("Marking mcap file %v as in-progress for upload", mcapFileName)
-	fp.PendingMcapFileUploads[mcapFileName] = struct{}{}
+	fp.PendingMcapFileUploads[job.Filename] = struct{}{}
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
-		Status: McapStatusPending,
-		Name:   mcapFileName,
+		Status: StatusProcessing,
+		Name:   job.Filename,
 	})
 }
 
-func (fp *FileProcessor) broadcastUploadedMcap(ctx context.Context, vehicleRunModel *models.VehicleRunModel) {
+func (fp *FileProcessor) broadcastFileUploadError(job *FileJob, error error) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
 
-	serialized := models.VehicleRunSerialize(ctx, fp.s3Repository, *vehicleRunModel)
+	log.Printf("MCAP File %v did not upload. Error: %v", job.Filename, error.Error)
+	job.Status = StatusFailed
+	job.UpdatedAt = time.Now()
+	delete(fp.PendingMcapFileUploads, job.Filename)
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
-		Status: McapStatusUploaded,
-		Data:   serialized,
+		Status: StatusFailed,
+		Name: job.Filename,
+		Error: error.Error(),
 	})
-	fileName := serialized.McapFiles[0].FileName
-	delete(fp.PendingMcapFileUploads, fileName)
-	log.Printf("File %v is marked as done", fileName)
+}
+
+func (fp *FileProcessor) broadcastFileUploadEnd(job *FileJob, ctx context.Context, vehicleRunModel *models.VehicleRunModel) {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+
+	log.Printf("File %v is marked as done", job.Filename)
+	job.Status = StatusCompleted
+	job.UpdatedAt = time.Now()
+	delete(fp.PendingMcapFileUploads, job.Filename)
+	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
+		Status: StatusCompleted,
+		Data:   models.VehicleRunSerialize(ctx, fp.s3Repository, *vehicleRunModel),
+	})
 }
 
 func (fp *FileProcessor) SubscribeToMcapStatus() chan []byte {
