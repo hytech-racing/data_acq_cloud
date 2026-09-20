@@ -15,5 +15,6 @@ type VehicleRunModelFilters struct {
 	Location    *string             `bson:"location",omitempty`
 	EventType   *string             `bson:"event_type",omitempty`
 	CarModel    *string             `bson:"car_model",omitempty`
+	Hidden      *bool               `bson:"encrypted,omitempty"`
 	SearchText  *string
 }

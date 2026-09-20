@@ -34,6 +34,7 @@ type VehicleRunModel struct {
 	CarModel       string                 `bson:"car_model,omitempty"`
 	Date           time.Time              `bson:"date"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
+	Hidden         bool                   `bson:"hidden,omitempty"`
 }
 
 type VehicleRunModelResponse struct {

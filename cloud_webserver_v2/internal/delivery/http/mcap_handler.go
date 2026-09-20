@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -49,7 +50,6 @@ func NewMcapHandler(
 	r.Route("/mcaps", func(r chi.Router) {
 		// The FileUploadMiddleware is attached to all routes involved with uploading files
 		// It limits the amount of uploads we accept to a pre-set limit
-		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
 
 		// static routes
@@ -166,9 +166,11 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 		log.Fatal(err)
 	}
 
-	res := make([]models.VehicleRunModelResponse, len(resModels))
-	for idx, model := range resModels {
-		res[idx] = models.VehicleRunSerialize(ctx, h.s3Repository, model)
+	res := make([]models.VehicleRunModelResponse, 0, len(resModels))
+	for _, model := range resModels {
+		if !model.Hidden {
+			res = append(res, models.VehicleRunSerialize(ctx, h.s3Repository, model))
+		}
 	}
 
 	data := make(map[string]interface{})
@@ -211,31 +213,6 @@ func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *Han
 	return nil
 }
 
-// UploadMcap allows for a single MCAP file upload and enqueues the job in the FileProcessor
-func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	defer r.MultipartForm.RemoveAll()
-
-	file := r.MultipartForm.File["file"]
-	jobIds := make([]string, 1, len(file))
-	fileHeader := file[0]
-	job, err := h.fileProcessor.EnqueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
-	if err != nil {
-		log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
-		return
-	}
-	jobIds[0] = job.ID
-
-	response := make(map[string]interface{})
-	response["message"] = "created file processing job"
-	response["data"] = jobIds
-
-	render.JSON(w, r, response)
-}
-
 // BulkUploadMcap allows for a many MCAP file uploads and enqueues the jobs in the FileProcessor
 func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -243,11 +220,12 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
+	hidden, _ := strconv.ParseBool(chi.URLParam(r, "hidden"))
 
 	files := r.MultipartForm.File["files"]
 	jobIds := make([]string, 0, len(files))
 	for _, fileHeader := range files {
-		job, err := h.fileProcessor.EnqueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
+		job, err := h.fileProcessor.EnqueueFile(fileHeader, &background.PostProcessMCAPUploadJob{}, hidden)
 		if err != nil {
 			log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
 			continue

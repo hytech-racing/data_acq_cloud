@@ -192,6 +192,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		MatFiles:     matFiles,
 		ContentFiles: contentFiles,
 		Id:           recordId,
+		Hidden:       job.Hidden,
 	}
 
 	_, err = fp.dbClient.VehicleRunUseCase().CreateVehicleRun(ctx, vehicleRunModel)

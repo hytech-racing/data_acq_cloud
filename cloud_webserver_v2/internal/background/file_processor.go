@@ -111,6 +111,8 @@ type FileJob struct {
 
 	// Size is the size of the file in bytes
 	Size int64
+
+	Hidden bool
 }
 
 // NewFileProcessor creates a new File Processor struct instance and populates is with
@@ -157,7 +159,7 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 // to perform its action(s).
 // EnqueueFile adds the new FileJob to the current queue of jobs being executed by the FileProcessor.
 // A successful job creation and enqueue will return a FileJob struct instance.
-func (fp *FileProcessor) EnqueueFile(fileHeader *multipart.FileHeader, processor FileJobProcessor) (*FileJob, error) {
+func (fp *FileProcessor) EnqueueFile(fileHeader *multipart.FileHeader, processor FileJobProcessor, hidden bool) (*FileJob, error) {
 	src, err := fileHeader.Open()
 	if err != nil {
 		return nil, err
@@ -176,6 +178,7 @@ func (fp *FileProcessor) EnqueueFile(fileHeader *multipart.FileHeader, processor
 		FileDir:   fp.directory,
 		Date:      time.Now(), // TODO: Change to date gotten from MCAP
 		Processor: processor,
+		Hidden: hidden,
 	}
 
 	dst, err := os.Create(job.FilePath)
