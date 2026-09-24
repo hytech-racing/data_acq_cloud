@@ -17,9 +17,9 @@ import (
 // with a one-time service ticket, we validate that ticket against CAS server-side,
 // and finally we issue our own session cookie. The ticket is never stored.
 type authHandler struct {
-	config   auth.Config
-	cas      *auth.CASClient
-	sessions auth.SessionStore
+	config          auth.Config
+	cas             *auth.CASClient
+	sessions        auth.SessionStore
 }
 
 // NewAuthHandler registers the Georgia Tech SSO routes:
@@ -28,11 +28,14 @@ type authHandler struct {
 //	GET /auth/callback -> validate the returned ticket and start a session
 //	GET /auth/logout   -> destroy the local session
 //	GET /auth/me       -> return the currently authenticated user
+//
+// Only emails present in the email allowlist may start a session; everyone else is
+// sent back to the frontend with an email_not_allowed error.
 func NewAuthHandler(r *chi.Mux, config auth.Config, sessions auth.SessionStore) {
 	handler := &authHandler{
-		config:   config,
-		cas:      auth.NewCASClient(config.BaseURL, config.ServiceURL),
-		sessions: sessions,
+		config:          config,
+		cas:             auth.NewCASClient(config.BaseURL, config.ServiceURL),
+		sessions:        sessions,
 	}
 
 	r.Route("/auth", func(r chi.Router) {
@@ -50,7 +53,8 @@ func (handler *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // Callback receives the one-time service ticket from CAS, validates it, and on success
-// starts a session and returns the user to the frontend.
+// starts a session and returns the user to the frontend. A session is only started when
+// the email CAS released is present in the allowlist.
 func (handler *authHandler) Callback(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ticket := r.URL.Query().Get("ticket")
 	if ticket == "" {
@@ -65,6 +69,25 @@ func (handler *authHandler) Callback(w http.ResponseWriter, r *http.Request) *Ha
 	if err != nil {
 		logging.GetLogger().ErrorF("cas ticket validation failed: %v", redactTicket(err.Error(), ticket))
 		http.Redirect(w, r, handler.errorRedirect("auth_failed"), http.StatusFound)
+		return nil
+	}
+
+	email := user.Attribute("mail")
+	if strings.TrimSpace(email) == "" {
+		logging.GetLogger().Warn("cas authentication succeeded without releasing an email address")
+		http.Redirect(w, r, handler.errorRedirect("missing_email"), http.StatusFound)
+		return nil
+	}
+
+	allowed, err := handler.emailAuthorizer.IsEmailAllowed(r.Context(), email)
+	if err != nil {
+		logging.GetLogger().ErrorF("failed to check the email allowlist: %v", err)
+		http.Redirect(w, r, handler.errorRedirect("auth_failed"), http.StatusFound)
+		return nil
+	}
+	if !allowed {
+		logging.GetLogger().Warn("rejected login for an email that is not on the allowlist")
+		http.Redirect(w, r, handler.errorRedirect("email_not_allowed"), http.StatusFound)
 		return nil
 	}
 
@@ -102,18 +125,6 @@ func (handler *authHandler) Me(w http.ResponseWriter, r *http.Request) *HandlerE
 	response["data"] = session.User
 	render.JSON(w, r, response)
 	return nil
-}
-
-// RequireAuth can be used to protect routes that should only be reachable by a
-// logged in Georgia Tech user.
-func (handler *authHandler) RequireAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := handler.currentSession(r); err != nil {
-			handleHTTPError(w, *NewHandlerError("not authenticated", http.StatusUnauthorized))
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // currentSession looks up the session referenced by the request's session cookie.
