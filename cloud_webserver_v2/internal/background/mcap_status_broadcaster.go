@@ -11,7 +11,7 @@ import (
 // A status = "completed" event carries the serialized MCAP data for a file that finished processing,
 // and a status = "failed" event carries the respective error.
 type McapStatusEvent struct {
-	Status string      `json:"status"`
+	Status McapStatus  `json:"status"`
 	Name   string      `json:"name,omitempty"`
 	Data   interface{} `json:"data,omitempty"`
 	Error  string      `json:"error,omitempty"`

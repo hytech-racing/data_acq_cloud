@@ -18,12 +18,14 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 )
 
+type McapStatus string
+
 // The current status of a file processor job is one of these statuses
 const (
-	StatusPending    = "pending"
-	StatusProcessing = "processing"
-	StatusCompleted  = "completed"
-	StatusFailed     = "failed"
+	StatusPending    McapStatus = "pending"
+	StatusProcessing McapStatus = "processing"
+	StatusCompleted  McapStatus = "completed"
+	StatusFailed     McapStatus = "failed"
 )
 
 // A FileJobProcessor serves as an interface to wrap a Process function used by a FileJob.
@@ -65,7 +67,7 @@ type FileProcessor struct {
 	TotalSize atomic.Int64
 
 	// Keeps track of uploads that are still in-progress
-	PendingMcapFileUploads map[string]struct{}
+	pendingMcapFileUploads map[string]struct{}
 
 	// processingWg is a WaitGroup used to make sure we complete the last task before gracefuly exiting
 	processingWg sync.WaitGroup
@@ -105,7 +107,7 @@ type FileJob struct {
 
 	// Status is the current status of the job
 	// The status is set to one of the consts Status... consts
-	Status string
+	Status McapStatus
 
 	// FilePath is the absolute path of where the file is
 	FilePath string
@@ -135,7 +137,7 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 		dbClient:              dbClient,
 		s3Repository:          s3Repository,
 		mcapStatusBroadcaster: NewMcapStatusBroadcaster(),
-		PendingMcapFileUploads: make(map[string]struct{}),
+		pendingMcapFileUploads: make(map[string]struct{}),
 	}
 
 	var totalSize int64
@@ -210,7 +212,7 @@ func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
 	for {
 		// Ensures that only 1 file is being processed at a time (to save resources)
 		// And that a file currently being processed tries to finish
-		if len(fp.PendingMcapFileUploads) > 0 {
+		if len(fp.pendingMcapFileUploads) > 0 {
 			time.Sleep(5 * time.Second)
 		}
 		select {
@@ -233,7 +235,7 @@ func (fp *FileProcessor) broadcastFileUploadStart(job *FileJob) {
 	log.Printf("MCAP File %v is being uploaded.", job.Filename)
 	job.Status = StatusProcessing
 	job.UpdatedAt = time.Now()
-	fp.PendingMcapFileUploads[job.Filename] = struct{}{}
+	fp.pendingMcapFileUploads[job.Filename] = struct{}{}
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
 		Status: StatusProcessing,
 		Name:   job.Filename,
@@ -244,10 +246,10 @@ func (fp *FileProcessor) broadcastFileUploadError(job *FileJob, error error) {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
 
-	log.Printf("MCAP File %v did not upload. Error: %v", job.Filename, error.Error)
+	log.Printf("MCAP File %v did not upload. Error: %v", job.Filename, error)
 	job.Status = StatusFailed
 	job.UpdatedAt = time.Now()
-	delete(fp.PendingMcapFileUploads, job.Filename)
+	delete(fp.pendingMcapFileUploads, job.Filename)
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
 		Status: StatusFailed,
 		Name: job.Filename,
@@ -262,11 +264,21 @@ func (fp *FileProcessor) broadcastFileUploadEnd(job *FileJob, ctx context.Contex
 	log.Printf("File %v is marked as done", job.Filename)
 	job.Status = StatusCompleted
 	job.UpdatedAt = time.Now()
-	delete(fp.PendingMcapFileUploads, job.Filename)
+	delete(fp.pendingMcapFileUploads, job.Filename)
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
 		Status: StatusCompleted,
 		Data:   models.VehicleRunSerialize(ctx, fp.s3Repository, *vehicleRunModel),
 	})
+}
+
+func (fp *FileProcessor) GetPendingMcapUploads() [] string {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+	fileUploads := make([]string, 0, len(fp.pendingMcapFileUploads))
+	for fileUpload, _ := range fp.pendingMcapFileUploads {
+		fileUploads = append(fileUploads, fileUpload)
+	}
+	return fileUploads
 }
 
 func (fp *FileProcessor) SubscribeToMcapStatus() chan []byte {

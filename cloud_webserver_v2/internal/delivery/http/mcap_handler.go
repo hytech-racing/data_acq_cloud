@@ -180,11 +180,7 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 }
 
 func (h *mcapHandler) GetPendingMcapUploads(w http.ResponseWriter, r *http.Request) {
-	fileUploads := make([]string, 0, len(h.fileProcessor.PendingMcapFileUploads))
-	for fileUpload, _ := range h.fileProcessor.PendingMcapFileUploads {
-		fileUploads = append(fileUploads, fileUpload)
-	}
-	render.JSON(w, r, fileUploads)
+	render.JSON(w, r, h.fileProcessor.GetPendingMcapUploads())
 }
 
 // ListenToMcapUploads is a Server-Sent Events (SSE) endpoint that streams updates about in-progress
