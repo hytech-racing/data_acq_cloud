@@ -9,6 +9,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+RUN if [ ! -f /app/config.json ]; then \
+    echo '["kkittur66", "dchen656"]' > /app/config.json; \
+fi
+
 # Download Go module dependencies
 COPY go.mod go.sum ./
 RUN go mod download

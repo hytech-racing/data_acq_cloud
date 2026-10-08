@@ -17,8 +17,6 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/auth"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/background"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/database/repository"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/database/usecase"
 	handler "github.com/hytech-racing/cloud-webserver-v2/internal/delivery/http"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/logging"
 	hytech_middleware "github.com/hytech-racing/cloud-webserver-v2/internal/middleware"
@@ -139,19 +137,6 @@ func main() {
 	defer sessionStore.Close()
 	log.Println("Configured Georgia Tech SSO...")
 
-	// The login allowlist is a small JSON file rather than a database, since
-	// registering emails is rare.
-	allowedEmailsPath := os.Getenv("ALLOWED_EMAILS_FILE")
-	if allowedEmailsPath == "" {
-		allowedEmailsPath = repository.DefaultAllowedEmailFilePath
-	}
-	allowedEmailRepo, err := repository.NewFileAllowedEmailRepository(allowedEmailsPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	allowedEmailUseCase := usecase.NewAllowedEmailUseCase(allowedEmailRepo)
-	log.Printf("Loaded allowed email allowlist from %s...", allowedEmailsPath)
-
 	router := chi.NewRouter()
 
 	// CORS Setup
@@ -184,12 +169,11 @@ func main() {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware)
+	authHandler := 	handler.NewAuthHandler(router, authConfig, sessionStore)
+	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, authHandler)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
-	handler.NewAuthHandler(router, authConfig, sessionStore, allowedEmailUseCase)
-	handler.NewEmailHandler(router, allowedEmailUseCase)
 
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)

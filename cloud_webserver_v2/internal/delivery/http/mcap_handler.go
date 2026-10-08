@@ -32,6 +32,7 @@ type mcapHandler struct {
 	s3Repository  *s3.S3Repository
 	dbClient      *database.DatabaseClient
 	fileProcessor *background.FileProcessor
+	authHandler   *AuthHandler
 }
 
 func NewMcapHandler(
@@ -40,11 +41,13 @@ func NewMcapHandler(
 	dbClient *database.DatabaseClient,
 	fileProcessor *background.FileProcessor,
 	fileUploadMiddleware *hytech_middleware.FileUploadMiddleware,
+	authHandler *AuthHandler,
 ) {
 	handler := &mcapHandler{
 		s3Repository:  s3Repository,
 		dbClient:      dbClient,
 		fileProcessor: fileProcessor,
+		authHandler:   authHandler,
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
@@ -62,6 +65,7 @@ func NewMcapHandler(
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
 		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
+		r.Post("/{id}/changeVisibilityTo/{visibility}", HandlerFunc(handler.ChangeVisibility).ServeHTTP)
 	})
 }
 
@@ -114,7 +118,7 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	queryParams := r.URL.Query()
-
+	_, logInErr := h.authHandler.CurrentSession(r)
 	filters := models.VehicleRunModelFilters{}
 
 	if queryParams.Has("id") {
@@ -168,7 +172,7 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 
 	res := make([]models.VehicleRunModelResponse, 0, len(resModels))
 	for _, model := range resModels {
-		if !model.Hidden {
+		if logInErr == nil || !model.Hidden {
 			res = append(res, models.VehicleRunSerialize(ctx, h.s3Repository, model))
 		}
 	}
@@ -182,6 +186,10 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 // GetMcapFromID takes in an ID from a URL param and responds with an MCAP with that ID.
 func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
+	_, logInErr := h.authHandler.CurrentSession(r)
+	if (logInErr != nil) {
+		return NewHandlerError("You must be logged in to view this MCAP file", http.StatusUnauthorized)
+	}
 
 	mcapId := chi.URLParam(r, "id")
 	if mcapId == "" {
@@ -220,7 +228,12 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
-	hidden, _ := strconv.ParseBool(chi.URLParam(r, "hidden"))
+
+	hidden, _ := strconv.ParseBool(r.URL.Query().Get("hidden"))
+
+	if hidden {
+		log.Printf("Adding hidden MCAP files")
+	}
 
 	files := r.MultipartForm.File["files"]
 	jobIds := make([]string, 0, len(files))
@@ -243,6 +256,11 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 // DeleteMcapFromID takes in an ID from a URL param and deletes the MCAP information from MongoDB and from S3.
 func (h *mcapHandler) DeleteMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
+
+	_, err := h.authHandler.CurrentSession(r)
+	if err != nil {
+		return NewHandlerError("not authenticated", http.StatusUnauthorized)
+	}
 
 	mcapId := chi.URLParam(r, "id")
 	if mcapId == "" {
@@ -289,6 +307,51 @@ func (h *mcapHandler) DeleteMcapFromID(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
+
+	return nil
+}
+
+func (h *mcapHandler) ChangeVisibility(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+
+	_, err := h.authHandler.CurrentSession(r)
+	if err != nil {
+		return NewHandlerError("not authenticated", http.StatusUnauthorized)
+	}
+
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	runModel, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return NewHandlerError(fmt.Sprintf("no run with id %v found", mcapId), http.StatusNotFound)
+		}
+		return NewHandlerError(fmt.Sprintf("could not get vehicle run by id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	visibility := chi.URLParam(r, "visibility")
+	if visibility != "hidden" && visibility != "visible" {
+		return NewHandlerError(fmt.Sprintf("Expected 'hidden' or 'visible' for visibility, got %v. ", visibility), http.StatusInternalServerError)
+	}
+
+	runModel.Hidden = chi.URLParam(r, "visibility") == "hidden"
+
+	err = h.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, objectId, runModel)
+	if err != nil {
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+
+	response := make(map[string]interface{})
+	response["message"] = ""
+	render.JSON(w, r, response)
 
 	return nil
 }

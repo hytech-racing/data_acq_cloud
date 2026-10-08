@@ -4,4 +4,4 @@
 uploads/
 /logs
 htmls/
-allowed_emails.json*
+usernames.json*
