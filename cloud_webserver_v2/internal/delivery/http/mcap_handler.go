@@ -93,7 +93,7 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 	if exists {
 		return NewHandlerError(fmt.Sprintf("File name already exists, duplicate file names not allowed"), http.StatusNotAcceptable)
 	}
-	err = h.s3Repository.WriteObjectReader(ctx, file, s3Key)
+	err = h.s3Repository.PutObject(ctx, file, s3Key)
 	if err != nil {
 		return NewHandlerError(fmt.Sprintf("Failed to upload to S3: "+err.Error()), http.StatusInternalServerError)
 	}

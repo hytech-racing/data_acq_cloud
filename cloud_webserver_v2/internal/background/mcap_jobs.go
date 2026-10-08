@@ -68,7 +68,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	recordId := primitive.NewObjectID()
 	mcapFileName := job.Filename
 	mcapObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
-	err = fp.s3Repository.WriteObjectReader(ctx, mcapFileS3Reader, mcapObjectFilePath)
+	err = fp.s3Repository.PutObject(ctx, mcapFileS3Reader, mcapObjectFilePath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 
 	hdf5FileName := fmt.Sprintf("%s.h5", genericFileName)
 	matObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), hdf5FileName)
-	err = fp.s3Repository.WriteObjectReader(ctx, hdf5File, matObjectFilePath)
+	err = fp.s3Repository.PutObject(ctx, hdf5File, matObjectFilePath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	// Uploading Lat-Lon file to S3
 	vnLatLonPlotName := fmt.Sprintf("%v_LatLon.png", genericFileName)
 	vnLatLonPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnLatLonPlotName)
-	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath)
+	err = fp.s3Repository.PutObjectWithWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	// Uploading Time-Vel file to S3
 	vnTimeVelPlotName := fmt.Sprintf("%v_Velocity.png", genericFileName)
 	vnTimeVelPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnTimeVelPlotName)
-	err = fp.s3Repository.WriteObjectWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath)
+	err = fp.s3Repository.PutObjectWithWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath)
 	if err != nil {
 		log.Fatal(err)
 	}

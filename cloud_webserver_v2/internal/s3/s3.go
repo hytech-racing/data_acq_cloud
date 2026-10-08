@@ -7,14 +7,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // s3Session establishes a new connection with S3
 type s3Session struct {
-	client        *s3.Client
-	presignClient *s3.PresignClient
-	bucket        string
+	client         *s3.Client
+	presignClient  *s3.PresignClient
+	transferClient *transfermanager.Client
+	bucket         string
 }
 
 func NewS3Session(accessKey string, secretKey string, region string, bucket string, endpoint string, nonAwsS3Store bool) *S3Repository {
@@ -34,10 +36,15 @@ func NewS3Session(accessKey string, secretKey string, region string, bucket stri
 	})
 	presignClient := s3.NewPresignClient(client)
 
+	// The transfer manager chunks uploads into a multipart upload, which lifts
+	// the 5GB limit of a single PutObject request.
+	transferClient := transfermanager.New(client)
+
 	session := &s3Session{
-		client:        client,
-		bucket:        bucket,
-		presignClient: presignClient,
+		client:         client,
+		bucket:         bucket,
+		presignClient:  presignClient,
+		transferClient: transferClient,
 	}
 	return &S3Repository{
 		s3_session: session,
