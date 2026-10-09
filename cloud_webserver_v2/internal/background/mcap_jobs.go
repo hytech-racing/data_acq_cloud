@@ -227,19 +227,16 @@ func (p *PostProcessMCAPUploadJob) saveMcapOnlyVehicleRun(
 		return fmt.Errorf("failed to save mcap-only vehicle run for %v: %w", job.Filename, err)
 	}
 
-	// Remove the partially generated HDF5 file, if one was created. Subscribers always
-	// write it to "<file_dir>/<generic_file_name>.h5".
 	generatedHdf5Location := fmt.Sprintf("%s/%s.h5", job.FileDir, strings.Split(job.Filename, ".")[0])
 	if err := os.Remove(generatedHdf5Location); err != nil && !os.IsNotExist(err) {
 		log.Printf("failed to remove generated hdf5 file %v: %v", generatedHdf5Location, err)
 	}
-
-	// Cleanup the locally staged mcap file now that it is stored on S3
+	
+	// Cleanup the locally staged mcap file now that it has been uploaded to S3
 	if err := os.Remove(job.FilePath); err != nil {
 		log.Printf("failed to remove processed mcap file %v: %v", job.FilePath, err)
 	}
 
-	// Update the file processor's total size and estimated size after removing
 	fp.TotalSize.Add(-job.Size)
 	fp.MiddlewareEstimatedSize.Add(-job.Size)
 
