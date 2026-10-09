@@ -55,6 +55,8 @@ func NewMcapHandler(
 		// static routes
 		r.Get("/", handler.GetMcapsFromFilters)
 		r.Get("/status", HandlerFunc(handler.CheckFileStatus).ServeHTTP)
+		r.Get("/subscribe", handler.ListenToMcapUploads)
+		r.Get("/pending", handler.GetPendingMcapUploads)
 
 		// parameterized routes
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
@@ -175,6 +177,58 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 	data["data"] = res
 	data["message"] = make(map[string]interface{})
 	render.JSON(w, r, data)
+}
+
+func (h *mcapHandler) GetPendingMcapUploads(w http.ResponseWriter, r *http.Request) {
+	render.JSON(w, r, h.fileProcessor.GetPendingMcapUploads())
+}
+
+// ListenToMcapUploads is a Server-Sent Events (SSE) endpoint that streams updates about in-progress
+// MCAP uploads. It broadcasts two event forms:
+//   - {"status": "pending", "name": "<file name>"} when a file starts processing
+//   - {"status": "uploaded", "data": {...}} with the serialized MCAP data when a file finishes
+func (h *mcapHandler) ListenToMcapUploads(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	events := h.fileProcessor.SubscribeToMcapStatus()
+	defer h.fileProcessor.UnsubscribeFromMcapStatus(events)
+
+	ctx := r.Context()
+	keepAlive := time.NewTicker(15 * time.Second)
+	defer keepAlive.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-keepAlive.C:
+			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			// fmt.Fprintf(w, data) writes the data to the ResponseWriter
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", event); err != nil {
+				return
+			}
+			// Then, the ResponseWriter (typecasted as a http.Flusher) 
+			// flushes the data to the subscriber on the frontend side
+			flusher.Flush()
+		}
+	}
 }
 
 // GetMcapFromID takes in an ID from a URL param and responds with an MCAP with that ID.
