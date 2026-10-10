@@ -9,6 +9,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+RUN if [ ! -f /app/config.json ]; then \
+    echo '["kkittur66", "dchen656"]' > /app/config.json; \
+fi
+
 # Download Go module dependencies
 COPY go.mod go.sum ./
 RUN go mod download
@@ -40,6 +44,9 @@ ENV AWS_S3_ENDPOINT=""
 ENV AWS_ACCESS_KEY=""
 ENV AWS_SECRET_KEY=""
 ENV ENV=""
+ENV GT_CAS_BASE_URL=""
+ENV GT_CAS_SERVICE_URL=""
+ENV FRONTEND_URL=""
 
 # Expose the port
 EXPOSE 8080

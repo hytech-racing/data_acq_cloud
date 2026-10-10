@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -26,11 +27,18 @@ import (
    - [ ] Once interpolation logic is fixed, write an interpolated MCAP file with the data.
 */
 
+const (
+	totalMcapFetchesPerMin = 30 
+)
+
 // mcapHandler handles all requests related to MCAP data (uploads, deletions, edits, reading).
 type mcapHandler struct {
-	s3Repository  *s3.S3Repository
-	dbClient      *database.DatabaseClient
-	fileProcessor *background.FileProcessor
+	s3Repository   *s3.S3Repository
+	dbClient       *database.DatabaseClient
+	fileProcessor  *background.FileProcessor
+	authHandler    *AuthHandler
+	mcapFetchCount int
+	lastResetTime  time.Time       
 }
 
 func NewMcapHandler(
@@ -39,17 +47,20 @@ func NewMcapHandler(
 	dbClient *database.DatabaseClient,
 	fileProcessor *background.FileProcessor,
 	fileUploadMiddleware *hytech_middleware.FileUploadMiddleware,
+	authHandler *AuthHandler,
 ) {
 	handler := &mcapHandler{
 		s3Repository:  s3Repository,
 		dbClient:      dbClient,
 		fileProcessor: fileProcessor,
+		authHandler:   authHandler,
+		mcapFetchCount: 0,
+		lastResetTime: time.Now(),
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
 		// The FileUploadMiddleware is attached to all routes involved with uploading files
 		// It limits the amount of uploads we accept to a pre-set limit
-		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/upload", handler.UploadMcap)
 		r.With(fileUploadMiddleware.FileUploadSizeLimitMiddleware).Post("/bulk_upload", handler.BulkUploadMcaps)
 
 		// static routes
@@ -64,7 +75,20 @@ func NewMcapHandler(
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
 		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
+		r.Post("/{id}/changeVisibilityTo/{visibility}", HandlerFunc(handler.ChangeVisibility).ServeHTTP)
 	})
+}
+
+func (h *mcapHandler) applyRateLimit(w http.ResponseWriter) bool {
+	if time.Now().Sub(h.lastResetTime).Abs().Seconds() > 60 {
+		h.lastResetTime = time.Now()
+		h.mcapFetchCount = 0
+	} else if h.mcapFetchCount > totalMcapFetchesPerMin {
+		return true
+	} else {
+		h.mcapFetchCount++;
+	}
+	return false
 }
 
 // Retrieves misc files uploaded from request, calls S3 usecase to update S3, & calls vehicle run usecase to
@@ -116,8 +140,13 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	queryParams := r.URL.Query()
-
+	_, logInErr := h.authHandler.CurrentSession(r)
 	filters := models.VehicleRunModelFilters{}
+
+	if logInErr != nil && h.applyRateLimit(w) {
+		http.Error(w, "Rate limit hit.", http.StatusTooManyRequests)
+		return
+	}
 
 	if queryParams.Has("id") {
 		id, err := primitive.ObjectIDFromHex(queryParams.Get("id"))
@@ -168,9 +197,11 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 		log.Fatal(err)
 	}
 
-	res := make([]models.VehicleRunModelResponse, len(resModels))
-	for idx, model := range resModels {
-		res[idx] = models.VehicleRunSerialize(ctx, h.s3Repository, model)
+	res := make([]models.VehicleRunModelResponse, 0, len(resModels))
+	for _, model := range resModels {
+		if logInErr == nil || !model.Hidden {
+			res = append(res, models.VehicleRunSerialize(ctx, h.s3Repository, model))
+		}
 	}
 
 	data := make(map[string]interface{})
@@ -234,6 +265,11 @@ func (h *mcapHandler) ListenToMcapUploads(w http.ResponseWriter, r *http.Request
 // GetMcapFromID takes in an ID from a URL param and responds with an MCAP with that ID.
 func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
+	_, logInErr := h.authHandler.CurrentSession(r)
+
+	if logInErr != nil && h.applyRateLimit(w) {
+		return NewHandlerError("Rate limit hit", http.StatusTooManyRequests)
+	}
 
 	mcapId := chi.URLParam(r, "id")
 	if mcapId == "" {
@@ -252,6 +288,11 @@ func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *Han
 		}
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
+
+	if logInErr != nil && mcap.Hidden {
+		return NewHandlerError("You must be logged in to view this MCAP file", http.StatusUnauthorized)
+	}
+
 	responseMcap := models.VehicleRunSerialize(ctx, h.s3Repository, *mcap)
 	data := make([]models.VehicleRunModelResponse, 1)
 	data[0] = responseMcap
@@ -265,31 +306,6 @@ func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *Han
 	return nil
 }
 
-// UploadMcap allows for a single MCAP file upload and enqueues the job in the FileProcessor
-func (h *mcapHandler) UploadMcap(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	defer r.MultipartForm.RemoveAll()
-
-	file := r.MultipartForm.File["file"]
-	jobIds := make([]string, 1, len(file))
-	fileHeader := file[0]
-	job, err := h.fileProcessor.EnqueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
-	if err != nil {
-		log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
-		return
-	}
-	jobIds[0] = job.ID
-
-	response := make(map[string]interface{})
-	response["message"] = "created file processing job"
-	response["data"] = jobIds
-
-	render.JSON(w, r, response)
-}
-
 // BulkUploadMcap allows for a many MCAP file uploads and enqueues the jobs in the FileProcessor
 func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -298,10 +314,16 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.MultipartForm.RemoveAll()
 
+	hidden, _ := strconv.ParseBool(r.URL.Query().Get("hidden"))
+
+	if hidden {
+		log.Printf("Adding hidden MCAP files")
+	}
+
 	files := r.MultipartForm.File["files"]
 	jobIds := make([]string, 0, len(files))
 	for _, fileHeader := range files {
-		job, err := h.fileProcessor.EnqueueFile(fileHeader, &background.PostProcessMCAPUploadJob{})
+		job, err := h.fileProcessor.EnqueueFile(fileHeader, &background.PostProcessMCAPUploadJob{}, hidden)
 		if err != nil {
 			log.Printf("Failed to queue file %s: %v", fileHeader.Filename, err)
 			continue
@@ -319,6 +341,11 @@ func (h *mcapHandler) BulkUploadMcaps(w http.ResponseWriter, r *http.Request) {
 // DeleteMcapFromID takes in an ID from a URL param and deletes the MCAP information from MongoDB and from S3.
 func (h *mcapHandler) DeleteMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
+
+	_, err := h.authHandler.CurrentSession(r)
+	if err != nil {
+		return NewHandlerError("not authenticated", http.StatusUnauthorized)
+	}
 
 	mcapId := chi.URLParam(r, "id")
 	if mcapId == "" {
@@ -365,6 +392,51 @@ func (h *mcapHandler) DeleteMcapFromID(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
+
+	return nil
+}
+
+func (h *mcapHandler) ChangeVisibility(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+
+	_, err := h.authHandler.CurrentSession(r)
+	if err != nil {
+		return NewHandlerError("not authenticated", http.StatusUnauthorized)
+	}
+
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	runModel, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return NewHandlerError(fmt.Sprintf("no run with id %v found", mcapId), http.StatusNotFound)
+		}
+		return NewHandlerError(fmt.Sprintf("could not get vehicle run by id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	visibility := chi.URLParam(r, "visibility")
+	if visibility != "hidden" && visibility != "visible" {
+		return NewHandlerError(fmt.Sprintf("Expected 'hidden' or 'visible' for visibility, got %v. ", visibility), http.StatusInternalServerError)
+	}
+
+	runModel.Hidden = chi.URLParam(r, "visibility") == "hidden"
+
+	err = h.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, objectId, runModel)
+	if err != nil {
+		return NewHandlerError(err.Error(), http.StatusInternalServerError)
+	}
+
+	response := make(map[string]interface{})
+	response["message"] = ""
+	render.JSON(w, r, response)
 
 	return nil
 }

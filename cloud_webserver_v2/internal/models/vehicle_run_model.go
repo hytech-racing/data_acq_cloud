@@ -34,6 +34,7 @@ type VehicleRunModel struct {
 	CarModel       string                 `bson:"car_model,omitempty"`
 	Date           time.Time              `bson:"date"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
+	Hidden         bool                   `bson:"hidden,omitempty"`
 }
 
 type VehicleRunModelResponse struct {
@@ -48,6 +49,7 @@ type VehicleRunModelResponse struct {
 	Location       *string                        `json:"location"`
 	EventType      *string                        `json:"event_type"`
 	DynamicFields  map[string]interface{}         `json:"dynamic_fields"`
+	Hidden         bool 						  `json:"hidden"`
 }
 
 func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model VehicleRunModel) VehicleRunModelResponse {
@@ -60,6 +62,7 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 		Location:       model.Location,
 		EventType:      model.EventType,
 		DynamicFields:  model.DynamicFields,
+		Hidden:         model.Hidden,
 	}
 
 	if model.McapFiles != nil && len(model.McapFiles) > 0 {
