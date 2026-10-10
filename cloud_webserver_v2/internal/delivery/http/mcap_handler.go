@@ -27,12 +27,18 @@ import (
    - [ ] Once interpolation logic is fixed, write an interpolated MCAP file with the data.
 */
 
+const (
+	totalMcapFetchesPerMin = 30 
+)
+
 // mcapHandler handles all requests related to MCAP data (uploads, deletions, edits, reading).
 type mcapHandler struct {
-	s3Repository  *s3.S3Repository
-	dbClient      *database.DatabaseClient
-	fileProcessor *background.FileProcessor
-	authHandler   *AuthHandler
+	s3Repository   *s3.S3Repository
+	dbClient       *database.DatabaseClient
+	fileProcessor  *background.FileProcessor
+	authHandler    *AuthHandler
+	mcapFetchCount int
+	lastResetTime  time.Time       
 }
 
 func NewMcapHandler(
@@ -48,6 +54,8 @@ func NewMcapHandler(
 		dbClient:      dbClient,
 		fileProcessor: fileProcessor,
 		authHandler:   authHandler,
+		mcapFetchCount: 0,
+		lastResetTime: time.Now(),
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
@@ -69,6 +77,18 @@ func NewMcapHandler(
 		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
 		r.Post("/{id}/changeVisibilityTo/{visibility}", HandlerFunc(handler.ChangeVisibility).ServeHTTP)
 	})
+}
+
+func (h *mcapHandler) applyRateLimit(w http.ResponseWriter) bool {
+	if time.Now().Sub(h.lastResetTime).Abs().Seconds() > 60 {
+		h.lastResetTime = time.Now()
+		h.mcapFetchCount = 0
+	} else if h.mcapFetchCount > totalMcapFetchesPerMin {
+		return true
+	} else {
+		h.mcapFetchCount++;
+	}
+	return false
 }
 
 // Retrieves misc files uploaded from request, calls S3 usecase to update S3, & calls vehicle run usecase to
@@ -122,6 +142,11 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 	queryParams := r.URL.Query()
 	_, logInErr := h.authHandler.CurrentSession(r)
 	filters := models.VehicleRunModelFilters{}
+
+	if logInErr != nil && h.applyRateLimit(w) {
+		http.Error(w, "Rate limit hit.", http.StatusTooManyRequests)
+		return
+	}
 
 	if queryParams.Has("id") {
 		id, err := primitive.ObjectIDFromHex(queryParams.Get("id"))
@@ -241,8 +266,9 @@ func (h *mcapHandler) ListenToMcapUploads(w http.ResponseWriter, r *http.Request
 func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
 	_, logInErr := h.authHandler.CurrentSession(r)
-	if (logInErr != nil) {
-		return NewHandlerError("You must be logged in to view this MCAP file", http.StatusUnauthorized)
+
+	if logInErr != nil && h.applyRateLimit(w) {
+		return NewHandlerError("Rate limit hit", http.StatusTooManyRequests)
 	}
 
 	mcapId := chi.URLParam(r, "id")
@@ -262,6 +288,11 @@ func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *Han
 		}
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
+
+	if logInErr != nil && mcap.Hidden {
+		return NewHandlerError("You must be logged in to view this MCAP file", http.StatusUnauthorized)
+	}
+
 	responseMcap := models.VehicleRunSerialize(ctx, h.s3Repository, *mcap)
 	data := make([]models.VehicleRunModelResponse, 1)
 	data[0] = responseMcap
