@@ -1,9 +1,9 @@
 # Build Stage
-FROM golang:1.23 AS go-builder
+FROM golang:1.24-trixie AS go-builder
 
 # Install required build dependencies
 RUN apt-get update && apt-get install -y \
-    libhdf5-serial-dev \
+    libhdf5-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -19,11 +19,14 @@ WORKDIR /app/cmd/cloud_webserver_v2
 RUN go build -o server main.go
 
 # Runtime Stage
-FROM ubuntu:22.04 AS runtime
+FROM debian:trixie-slim AS runtime
 
-# Install runtime dependencies
+# Install runtime dependencies. Only the shared libraries are needed here,
+# not the -dev packages. ca-certificates is required for TLS to S3/MongoDB.
 RUN apt-get update && apt-get install -y \
-    libhdf5-serial-dev \
+    libhdf5-310 \
+    libhdf5-hl-310 \
+    ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
