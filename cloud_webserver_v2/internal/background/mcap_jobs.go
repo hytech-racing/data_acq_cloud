@@ -38,7 +38,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	recordId := primitive.NewObjectID()
 	mcapFileName := job.Filename
 	mcapObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
-	if err := fp.s3Repository.WriteObjectReader(ctx, mcapFileS3Reader, mcapObjectFilePath); err != nil {
+	if err := fp.s3Repository.PutObject(ctx, mcapFileS3Reader, mcapObjectFilePath); err != nil {
 		return fmt.Errorf("failed to upload mcap file %v to s3: %w", mcapFileName, err)
 	}
 	log.Printf("uploaded mcap file %v to s3", mcapFileName)
@@ -107,7 +107,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 
 	hdf5FileName := fmt.Sprintf("%s.h5", genericFileName)
 	matObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), hdf5FileName)
-	if err := fp.s3Repository.WriteObjectReader(ctx, hdf5File, matObjectFilePath); err != nil {
+	if err := fp.s3Repository.PutObject(ctx, hdf5File, matObjectFilePath); err != nil {
 		return p.saveMcapOnlyVehicleRun(fp, ctx, job, vehicleRunModel, fmt.Errorf("failed to upload hdf5 file %v to s3: %w", hdf5FileName, err))
 	}
 	log.Printf("uploaded hdf5 file %v to s3", hdf5FileName)
@@ -118,7 +118,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	}
 	vnLatLonPlotName := fmt.Sprintf("%v_LatLon.png", genericFileName)
 	vnLatLonPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnLatLonPlotName)
-	if err := fp.s3Repository.WriteObjectWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath); err != nil {
+	if err := fp.s3Repository.PutObjectWithWriterTo(ctx, vnLatLonPlotWriter, vnLatLonPlotFileObjectPath); err != nil {
 		return p.saveMcapOnlyVehicleRun(fp, ctx, job, vehicleRunModel, fmt.Errorf("failed to upload vn lat lon plot %v to s3: %w", vnLatLonPlotName, err))
 	}
 	log.Printf("uploaded vn lat lon plot %v to s3", vnLatLonPlotName)
@@ -129,7 +129,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	}
 	vnTimeVelPlotName := fmt.Sprintf("%v_Velocity.png", genericFileName)
 	vnTimeVelPlotFileObjectPath := fmt.Sprintf("%s/%s", recordId.Hex(), vnTimeVelPlotName)
-	if err := fp.s3Repository.WriteObjectWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath); err != nil {
+	if err := fp.s3Repository.PutObjectWithWriterTo(ctx, vnTimeVelPlotWriter, vnTimeVelPlotFileObjectPath); err != nil {
 		return p.saveMcapOnlyVehicleRun(fp, ctx, job, vehicleRunModel, fmt.Errorf("failed to upload vn time vel plot %v to s3: %w", vnTimeVelPlotName, err))
 	}
 	log.Printf("uploaded vn time vel plot %v to s3", vnTimeVelPlotName)

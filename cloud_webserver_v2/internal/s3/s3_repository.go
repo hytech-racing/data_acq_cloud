@@ -1,7 +1,6 @@
 package s3
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -19,31 +19,37 @@ type S3Repository struct {
 
 // Writes an object to the S3 bucket from a writer. You can think of an S3 object like a file.
 // We store all our images, MATLAB, and MCAP files here.
-func (s *S3Repository) WriteObjectWriterTo(ctx context.Context, writer *io.WriterTo, objectName string) error {
-	var buf bytes.Buffer
-
-	_, err := (*writer).WriteTo(&buf)
-	if err != nil {
-		log.Printf("Failed to write buffer: %v", err)
+func (s *S3Repository) PutObjectWithWriterTo(ctx context.Context, writer *io.WriterTo, objectName string) error {
+	if writer == nil || *writer == nil {
+		return fmt.Errorf("couldn't upload file %v to %v: writer is nil", objectName, s.s3_session.bucket)
 	}
 
-	reader := bytes.NewReader(buf.Bytes())
-	_, err = s.s3_session.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(s.s3_session.bucket),
-		Key:    aws.String(objectName),
-		Body:   reader,
-	})
-	if err != nil {
-		return fmt.Errorf("couldn't upload file %v to %v:%v. Here's why: %v",
-			objectName, s.s3_session.bucket, objectName, err)
+	// Writers that can also be read from (e.g. *bytes.Buffer, *os.File) are handed
+	// over as-is so the transfer manager can size the object up front.
+	if reader, ok := (*writer).(io.Reader); ok {
+		return s.PutObject(ctx, reader, objectName)
 	}
 
-	return nil
+	// Otherwise pump the writer through a pipe so the object is streamed to S3
+	// instead of being buffered in memory in its entirety.
+	pipeReader, pipeWriter := io.Pipe()
+	// Closing the reader on the way out unblocks the goroutine below if the
+	// upload stops reading early because it failed.
+	defer pipeReader.Close()
+	go func() {
+		_, err := (*writer).WriteTo(pipeWriter)
+		// A nil error surfaces to the reader as io.EOF.
+		pipeWriter.CloseWithError(err)
+	}()
+
+	return s.PutObject(ctx, pipeReader, objectName)
 }
 
-// Writes an object to the S3 bucket from a reader.
-func (s *S3Repository) WriteObjectReader(ctx context.Context, reader io.Reader, objectName string) error {
-	_, err := s.s3_session.client.PutObject(ctx, &s3.PutObjectInput{
+// Writes an object to the S3 bucket from a reader. Uploads are handled by the S3
+// transfer manager, which transparently switches to a multipart upload so that
+// objects larger than the 5GB single PutObject limit are supported.
+func (s *S3Repository) PutObject(ctx context.Context, reader io.Reader, objectName string) error {
+	_, err := s.s3_session.transferClient.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket: aws.String(s.s3_session.bucket),
 		Key:    aws.String(objectName),
 		Body:   reader,
