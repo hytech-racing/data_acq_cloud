@@ -57,12 +57,41 @@ AWS_ACCESS_KEY=minioadmin
 AWS_SECRET_KEY=minioadmin
 ENV=dev
 USING_NON_AWS_COMPATIBLE_STORE=true
+GT_CAS_SERVICE_URL=http://localhost:8080/api/v2/auth/callback
+GT_CAS_BASE_URL=https://sso.gatech.edu/cas
+FRONTEND_URL=http://localhost:5173
 ```
 
 Navigate to the `cloud_webserver_v2` directory, and run `docker compose up --build`. The server should be available at `http://localhost:8080`.
 
 Note: this dev setup currently does not support downloading files or viewing graph previews on the `query-frontend`. Visit `http://localhost:9001`
 to download these files instead.  
+
+## Georgia Tech SSO (CAS)
+
+The `cloud_webserver_v2` service authenticates users through Georgia Tech's CAS 3.0 server. The flow is:
+
+1. The frontend sends the browser to `GET /auth/login` (also reachable at `/api/v2/auth/login`).
+2. The server redirects to `https://sso.gatech.edu/cas/login` with our callback URL as the `service` parameter.
+3. After signing in with a GT account, the browser lands on `GET /auth/callback?ticket=...`.
+4. The server validates the ticket against `/p3/serviceValidate`, issues its own session cookie, and redirects to `FRONTEND_URL`.
+5. The frontend can call `GET /auth/me` (with credentials) to read the current user, and `GET /auth/logout` to end the local session.
+
+Georgia Tech IT must register the callback URL (`GT_CAS_SERVICE_URL`) before the flow works. An unregistered
+service produces "Service not authorized" and `INVALID_TICKET` errors.
+
+Relevant environment variables:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `GT_CAS_BASE_URL` | `https://sso.gatech.edu/cas` | CAS server base URL. |
+| `GT_CAS_SERVICE_URL` | *(required)* | The registered callback URL, e.g. `http://localhost:8080/api/v2/auth/callback`. It must be identical between the login redirect and the validation request. |
+| `FRONTEND_URL` | `http://localhost:5173` | Where the browser is sent after logging in or out. |
+| `SESSION_COOKIE_NAME` | `hytech_session` | Name of the session cookie. |
+| `SESSION_COOKIE_SECURE` | `true`, or `false` when `ENV=dev` | Marks the session cookie as HTTPS-only. |
+| `SESSION_TTL_HOURS` | `12` | How long a login stays valid. |
+
+Note: sessions are kept in memory, so restarting the server logs everyone out.
 
 ## Docker-hosted MongoDB Dev Guide:
 

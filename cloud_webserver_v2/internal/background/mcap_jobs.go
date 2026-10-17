@@ -65,6 +65,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 			},
 		},
 		Id: recordId,
+		Hidden: job.Hidden,
 	}
 
 	genericFileName := strings.Split(job.Filename, ".")[0]
