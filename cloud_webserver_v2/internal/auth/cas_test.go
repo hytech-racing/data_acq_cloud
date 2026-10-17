@@ -80,10 +80,10 @@ func TestValidateSendsTicketAndServiceAndParsesAttributes(t *testing.T) {
 	if user.Username != "gburdell3" {
 		t.Errorf("Username = %q, want %q", user.Username, "gburdell3")
 	}
-	if got := user.Attribute("mail"); got != "george.burdell@gatech.edu" {
+	if got := user.Attributes["mail"]; got != "george.burdell@gatech.edu" {
 		t.Errorf("mail attribute = %q, want %q", got, "george.burdell@gatech.edu")
 	}
-	if got := user.Attribute("displayName"); got != "George P. Burdell" {
+	if got := user.Attributes["displayName"]; got != "George P. Burdell" {
 		t.Errorf("displayName attribute = %q, want %q", got, "George P. Burdell")
 	}
 }
@@ -160,10 +160,10 @@ func TestParseCASResponseSupportsNameValueAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseCASResponse() returned unexpected error: %v", err)
 	}
-	if got := user.Attribute("mail"); got != "george.burdell@gatech.edu" {
+	if got := user.Attributes["mail"]; got != "george.burdell@gatech.edu" {
 		t.Errorf("mail attribute = %q, want %q", got, "george.burdell@gatech.edu")
 	}
-	if got := user.Attribute("displayName"); got != "George P. Burdell" {
+	if got := user.Attributes["displayName"]; got != "George P. Burdell" {
 		t.Errorf("displayName attribute = %q, want %q", got, "George P. Burdell")
 	}
 }

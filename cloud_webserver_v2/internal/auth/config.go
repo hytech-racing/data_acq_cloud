@@ -18,8 +18,8 @@ const (
 	DefaultSessionTTL = 12 * time.Hour
 )
 
-// Config holds the settings needed to integrate with Georgia Tech's CAS server.
-type Config struct {
+// AuthConfig holds the settings needed to integrate with Georgia Tech's CAS server.
+type AuthConfig struct {
 	// BaseURL is the CAS server, for example https://sso.gatech.edu/cas.
 	BaseURL string
 	// ServiceURL is the callback URL registered with Georgia Tech. It must be
@@ -36,14 +36,10 @@ type Config struct {
 	SessionTTL time.Duration
 }
 
-// ConfigFromEnv builds a Config from environment variables.
-// GT_CAS_SERVICE_URL is required, everything else has sensible defaults.
-// In the dev environment (ENV=dev) cookies are not marked secure so the server can be
-// used over http://localhost, otherwise secure cookies are the default.
-func ConfigFromEnv() (Config, error) {
+func AuthConfigFromEnv() (AuthConfig, error) {
 	serviceURL := os.Getenv("GT_CAS_SERVICE_URL")
 	if serviceURL == "" {
-		return Config{}, errors.New("could not get GT_CAS_SERVICE_URL environment variable")
+		return AuthConfig{}, errors.New("could not get GT_CAS_SERVICE_URL environment variable")
 	}
 
 	baseURL := os.Getenv("GT_CAS_BASE_URL")
@@ -65,7 +61,7 @@ func ConfigFromEnv() (Config, error) {
 	if raw := os.Getenv("SESSION_COOKIE_SECURE"); raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
-			return Config{}, fmt.Errorf("could not parse SESSION_COOKIE_SECURE environment variable: %w", err)
+			return AuthConfig{}, fmt.Errorf("could not parse SESSION_COOKIE_SECURE environment variable: %w", err)
 		}
 		cookieSecure = parsed
 	}
@@ -74,12 +70,12 @@ func ConfigFromEnv() (Config, error) {
 	if raw := os.Getenv("SESSION_TTL_HOURS"); raw != "" {
 		hours, err := strconv.Atoi(raw)
 		if err != nil || hours <= 0 {
-			return Config{}, errors.New("SESSION_TTL_HOURS environment variable must be a positive integer")
+			return AuthConfig{}, errors.New("SESSION_TTL_HOURS environment variable must be a positive integer")
 		}
 		sessionTTL = time.Duration(hours) * time.Hour
 	}
 
-	return Config{
+	return AuthConfig{
 		BaseURL:      baseURL,
 		ServiceURL:   serviceURL,
 		FrontendURL:  frontendURL,

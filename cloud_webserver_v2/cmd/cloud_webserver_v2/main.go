@@ -127,7 +127,7 @@ func main() {
 	}
 
 	// Setup Georgia Tech CAS single sign-on
-	authConfig, err := auth.ConfigFromEnv()
+	authConfig, err := auth.AuthConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -169,16 +169,16 @@ func main() {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	authHandler := 	handler.NewAuthHandler(router, authConfig, sessionStore)
+	authHandler := handler.NewAuthHandler(router, authConfig, sessionStore)
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, authHandler)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
 
-	_, check_file_err := os.Stat(handler.USERNAMES_FILE)
+	_, check_file_err := os.Stat(handler.UsernamesFile)
 	defaultUsername := os.Getenv("DEFAULT_USERNAME")
 	if check_file_err != nil && defaultUsername != "" {
-		os.WriteFile(handler.USERNAMES_FILE, []byte("[\""+defaultUsername+"\"]"), 0644)
+		os.WriteFile(handler.UsernamesFile, []byte("[\""+defaultUsername+"\"]"), 0644)
 	}
 
 	// Graceful shutdown: listen for interrupt signals

@@ -23,12 +23,8 @@ const (
 	maxCASResponseBytes = 1 << 20 // A CAS response is tiny, so this only guards against a misbehaving server.
 )
 
-// ErrAuthenticationFailed is returned when CAS answers without a user and without
-// an explicit authenticationFailure, which means the response could not be trusted.
 var ErrAuthenticationFailed = errors.New("cas authentication failed")
 
-// ValidationError describes an authenticationFailure returned by the CAS server.
-// The Code is one of CAS's error codes, for example INVALID_TICKET or INVALID_SERVICE.
 type ValidationError struct {
 	Code    string
 	Message string
@@ -41,15 +37,9 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("cas validation failed: %s: %s", e.Code, e.Message)
 }
 
-// User is an authenticated Georgia Tech user as returned by a successful CAS validation.
 type User struct {
 	Username   string            `json:"username"`
 	Attributes map[string]string `json:"attributes"`
-}
-
-// Attribute returns the value of a CAS released attribute, for example "mail" or "displayName".
-func (u *User) Attribute(name string) string {
-	return u.Attributes[name]
 }
 
 // CASClient talks to the Georgia Tech CAS server for a single registered service.
@@ -69,18 +59,14 @@ func NewCASClient(baseURL, serviceURL string) *CASClient {
 	}
 }
 
-// ServiceURL returns the callback URL this client authenticates against.
 func (c *CASClient) ServiceURL() string {
 	return c.serviceURL
 }
 
-// LoginURL builds the CAS login URL the browser should be redirected to.
 func (c *CASClient) LoginURL() string {
 	return c.baseURL + casLoginPath + "?service=" + url.QueryEscape(c.serviceURL)
 }
 
-// LogoutURL builds the CAS logout URL, optionally asking CAS to send the browser
-// back to redirectURL once its own session has been destroyed.
 func (c *CASClient) LogoutURL(redirectURL string) string {
 	logoutURL := c.baseURL + casLogoutPath
 	if redirectURL == "" {

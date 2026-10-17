@@ -17,7 +17,7 @@ import (
 )
 
 // The usernames storage file to write to
-const USERNAMES_FILE = "config/usernames.json"
+const UsernamesFile = "config/usernames.json"
 
 // ticketReplayWindow is how long the outcome of a validated service ticket is replayed.
 // CAS service tickets are single-use, so a browser that visits the callback more than once
@@ -30,7 +30,7 @@ const ticketReplayWindow = time.Minute
 // with a one-time service ticket, we validate that ticket against CAS server-side,
 // and finally we issue our own session cookie. The ticket is never stored.
 type AuthHandler struct {
-	config   auth.Config
+	config   auth.AuthConfig
 	cas      *auth.CASClient
 	tickets  *auth.TicketExchange
 	sessions auth.SessionStore
@@ -51,7 +51,7 @@ type usernameRequest struct {
 //
 // Only emails present in the email allowlist may start a session; everyone else is
 // sent back to the frontend with an email_not_allowed error.
-func NewAuthHandler(r *chi.Mux, config auth.Config, sessions auth.SessionStore) *AuthHandler {
+func NewAuthHandler(r *chi.Mux, config auth.AuthConfig, sessions auth.SessionStore) *AuthHandler {
 	cas := auth.NewCASClient(config.BaseURL, config.ServiceURL)
 
 	handler := &AuthHandler{
@@ -167,10 +167,10 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 	defer h.fileLock.Unlock()
 
 	var allowedUsernames []string
-	raw, err := os.ReadFile(USERNAMES_FILE)
+	raw, err := os.ReadFile(UsernamesFile)
 	if err != nil {
 		allowedUsernames = []string{request.Username}
-		os.WriteFile(USERNAMES_FILE, []byte("[\""+request.Username+"\"]"), 0644)
+		os.WriteFile(UsernamesFile, []byte("[\""+request.Username+"\"]"), 0644)
 		w.WriteHeader(http.StatusCreated)
 		return nil
 	}
@@ -184,7 +184,7 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		panic(err)
 	}
-	os.WriteFile(USERNAMES_FILE, data, 0644)
+	os.WriteFile(UsernamesFile, data, 0644)
 	w.WriteHeader(http.StatusCreated)
 
 	return nil
@@ -205,18 +205,18 @@ func (h *AuthHandler) RemoveUsername(w http.ResponseWriter, r *http.Request) *Ha
 	defer h.fileLock.Unlock()
 
 	var allowedUsernames []string
-	raw, err := os.ReadFile(USERNAMES_FILE)
+	raw, err := os.ReadFile(UsernamesFile)
 	if err != nil {
 		return NewHandlerError("Usernames file could not be read.", http.StatusBadRequest)
 	}
-	
+
 	err = json.Unmarshal(raw, &allowedUsernames)
 	if err != nil {
 		return NewHandlerError("Usernames file could not be read.", http.StatusBadRequest)
 	}
 	modifiedUsernames := allowedUsernames[:0]
 	for _, username := range allowedUsernames {
-		if (username != request.Username) {
+		if username != request.Username {
 			modifiedUsernames = append(modifiedUsernames, username)
 		}
 	}
@@ -225,7 +225,7 @@ func (h *AuthHandler) RemoveUsername(w http.ResponseWriter, r *http.Request) *Ha
 	if err != nil {
 		panic(err)
 	}
-	os.WriteFile(USERNAMES_FILE, data, 0644)
+	os.WriteFile(UsernamesFile, data, 0644)
 	w.WriteHeader(http.StatusCreated)
 
 	return nil
@@ -243,7 +243,7 @@ func (h *AuthHandler) getAllowedUsernames() []string {
 	h.fileLock.RLock()
 	defer h.fileLock.RUnlock()
 
-	data, err := os.ReadFile(USERNAMES_FILE)
+	data, err := os.ReadFile(UsernamesFile)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("getAllowedEmails: failed to read file: %v", err)
