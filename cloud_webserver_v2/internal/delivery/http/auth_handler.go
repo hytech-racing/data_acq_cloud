@@ -16,7 +16,8 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/auth"
 )
 
-const usernamesFile = "usernames.json"
+// The usernames storage file to write to
+const USERNAMES_FILE = "config/usernames.json"
 
 // ticketReplayWindow is how long the outcome of a validated service ticket is replayed.
 // CAS service tickets are single-use, so a browser that visits the callback more than once
@@ -166,10 +167,10 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 	defer h.fileLock.Unlock()
 
 	var allowedUsernames []string
-	raw, err := os.ReadFile(usernamesFile)
+	raw, err := os.ReadFile(USERNAMES_FILE)
 	if err != nil {
 		allowedUsernames = []string{request.Username}
-		os.WriteFile(usernamesFile, []byte("[\""+request.Username+"\"]"), 0644)
+		os.WriteFile(USERNAMES_FILE, []byte("[\""+request.Username+"\"]"), 0644)
 		w.WriteHeader(http.StatusCreated)
 		return nil
 	}
@@ -183,7 +184,7 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		panic(err)
 	}
-	os.WriteFile(usernamesFile, data, 0644)
+	os.WriteFile(USERNAMES_FILE, data, 0644)
 	w.WriteHeader(http.StatusCreated)
 
 	return nil
@@ -204,7 +205,7 @@ func (h *AuthHandler) RemoveUsername(w http.ResponseWriter, r *http.Request) *Ha
 	defer h.fileLock.Unlock()
 
 	var allowedUsernames []string
-	raw, err := os.ReadFile(usernamesFile)
+	raw, err := os.ReadFile(USERNAMES_FILE)
 	if err != nil {
 		return NewHandlerError("Usernames file could not be read.", http.StatusBadRequest)
 	}
@@ -224,7 +225,7 @@ func (h *AuthHandler) RemoveUsername(w http.ResponseWriter, r *http.Request) *Ha
 	if err != nil {
 		panic(err)
 	}
-	os.WriteFile(usernamesFile, data, 0644)
+	os.WriteFile(USERNAMES_FILE, data, 0644)
 	w.WriteHeader(http.StatusCreated)
 
 	return nil
@@ -242,7 +243,7 @@ func (h *AuthHandler) getAllowedUsernames() []string {
 	h.fileLock.RLock()
 	defer h.fileLock.RUnlock()
 
-	data, err := os.ReadFile(usernamesFile)
+	data, err := os.ReadFile(USERNAMES_FILE)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("getAllowedEmails: failed to read file: %v", err)

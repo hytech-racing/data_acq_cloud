@@ -175,6 +175,12 @@ func main() {
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
 
+	_, check_file_err := os.Stat(handler.USERNAMES_FILE)
+	defaultUsername := os.Getenv("DEFAULT_USERNAME")
+	if check_file_err != nil && defaultUsername != "" {
+		os.WriteFile(handler.USERNAMES_FILE, []byte("[\""+defaultUsername+"\"]"), 0644)
+	}
+
 	// Graceful shutdown: listen for interrupt signals
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

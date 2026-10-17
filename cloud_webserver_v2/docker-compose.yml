@@ -5,7 +5,7 @@ services:
       - run_metadata:/data/run_metadata
       - ./htmls:/app/files
       - ./logs:/app/logs
-      - ./usernames.json:/app/usernames.json
+      - ./config:/app/config
     build:
       context: .
     env_file: 

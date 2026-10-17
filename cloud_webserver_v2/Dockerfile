@@ -9,9 +9,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-RUN if [ ! -f /app/config.json ]; then \
-    echo '["kkittur66", "dchen656"]' > /app/config.json; \
-fi
+RUN mkdir /config/
 
 # Download Go module dependencies
 COPY go.mod go.sum ./
@@ -50,6 +48,7 @@ ENV ENV=""
 ENV GT_CAS_BASE_URL=""
 ENV GT_CAS_SERVICE_URL=""
 ENV FRONTEND_URL=""
+ENV DEFAULT_USERNAME=""
 
 # Expose the port
 EXPOSE 8080
