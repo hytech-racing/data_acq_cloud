@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -162,6 +163,11 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 	if strings.TrimSpace(request.Username) == "" {
 		return NewHandlerError("username is required", http.StatusBadRequest)
 	}
+	for _, r := range request.Username {
+		if unicode.IsUpper(r) {
+			return NewHandlerError("usernames can only contain lowercase letters and numbers.", http.StatusBadRequest);
+		}
+	}
 
 	h.fileLock.Lock()
 	defer h.fileLock.Unlock()
@@ -179,6 +185,9 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 	if err != nil {
 		panic(err)
 	}
+	if slices.Contains(allowedUsernames, request.Username) {
+		return NewHandlerError("user is already an admin", http.StatusBadRequest)
+	}
 	allowedUsernames = append(allowedUsernames, request.Username)
 	data, err := json.MarshalIndent(allowedUsernames, "", "  ")
 	if err != nil {
@@ -191,7 +200,7 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 }
 
 func (h *AuthHandler) RemoveUsername(w http.ResponseWriter, r *http.Request) *HandlerError {
-	_, err := h.CurrentSession(r)
+	session, err := h.CurrentSession(r)
 	if err != nil {
 		return NewHandlerError("not authenticated", http.StatusUnauthorized)
 	}
@@ -199,6 +208,10 @@ func (h *AuthHandler) RemoveUsername(w http.ResponseWriter, r *http.Request) *Ha
 	var request usernameRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		return NewHandlerError("invalid request body, expected a JSON object with a username field", http.StatusBadRequest)
+	}
+
+	if session.User.Username == request.Username {
+		return NewHandlerError("Cannot delete self from admin list", http.StatusBadRequest)
 	}
 
 	h.fileLock.Lock()
