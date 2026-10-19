@@ -126,7 +126,7 @@ func main() {
 		FileProcessor: fileProcessor,
 	}
 
-	// Setup Georgia Tech CAS single sign-on
+	// Setup Georgia Tech single sign-on over OIDC
 	authConfig, err := auth.AuthConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
@@ -151,7 +151,7 @@ func main() {
 	}))
 
 	// Simple middleware stack
-	// The redacting formatter keeps single-use CAS service tickets out of the request log.
+	// The redacting formatter keeps single-use OIDC authorization codes out of the request log.
 	router.Use(middleware.RequestLogger(hytech_middleware.NewRedactingLogFormatter()))
 	router.Use(middleware.Heartbeat("/ping"))
 	router.Use(middleware.RequestID)
@@ -163,13 +163,21 @@ func main() {
 	// processing should be stopped.
 	router.Use(middleware.Timeout(2 * time.Minute))
 
+	authHandler, err := handler.NewAuthHandler(ctx, router, authConfig, sessionStore)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Callback URLs for GTSSO were unfortunately registered before we developed V2 of the DOPS backend.
+	// This means that we have to use
+	router.Get("/api/auth/oauth2/callback/gatech", handler.HandlerFunc(authHandler.Callback).ServeHTTP)
+
 	router.Mount("/api/v2", router)
 	log.Println("Ready to accept requests!")
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	authHandler := handler.NewAuthHandler(router, authConfig, sessionStore)
+	authHandler.RegisterNonCallbackEndpoints()
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, authHandler)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
@@ -211,5 +219,5 @@ func main() {
 		os.Exit(0)
 	}()
 
-	http.ListenAndServe(":8080", router)
+	http.ListenAndServe(":3000", router)
 }

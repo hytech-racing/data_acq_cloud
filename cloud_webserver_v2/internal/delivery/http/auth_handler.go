@@ -1,7 +1,9 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -20,22 +22,32 @@ import (
 // The usernames storage file to write to
 const UsernamesFile = "config/usernames.json"
 
-// ticketReplayWindow is how long the outcome of a validated service ticket is replayed.
-// CAS service tickets are single-use, so a browser that visits the callback more than once
-// for a single login must not have to exchange the ticket a second time.
-const ticketReplayWindow = time.Minute
+// codeReplayWindow is how long the outcome of an authorization code exchange is replayed.
+// Codes are single-use, so a browser that visits the callback more than once for a single
+// login must not have to redeem the code a second time.
+const codeReplayWindow = time.Minute
 
-// AuthHandler implements the Georgia Tech CAS single sign-on flow.
+const (
+	// loginCookiePrefix is followed by the login's state, which keeps concurrent logins
+	// in different browser tabs from overwriting each other.
+	loginCookiePrefix = "hytech_oidc_login_"
+	// loginCookieTTL bounds how long an unfinished login can wait at the provider.
+	loginCookieTTL = 10 * time.Minute
+)
+
+// AuthHandler implements the Georgia Tech single sign-on flow using OpenID Connect.
 //
-// The browser is sent to the CAS login page, CAS sends it back to our callback
-// with a one-time service ticket, we validate that ticket against CAS server-side,
-// and finally we issue our own session cookie. The ticket is never stored.
+// The browser is sent to the provider's authorization endpoint with a state, nonce and
+// PKCE challenge. The provider sends it back to our callback with a one-time
+// authorization code, we exchange that code server-side for a verified id token, and
+// finally we issue our own session cookie. The code is never stored.
 type AuthHandler struct {
 	config   auth.AuthConfig
-	cas      *auth.CASClient
-	tickets  *auth.TicketExchange
+	oidc     *auth.OIDCClient
+	codes    *auth.CodeExchange
 	sessions auth.SessionStore
 	fileLock sync.RWMutex
+	router   *chi.Mux
 }
 
 // usernameRequest is the JSON body accepted by RegisterEmail
@@ -45,65 +57,119 @@ type usernameRequest struct {
 
 // NewAuthHandler registers the Georgia Tech SSO routes:
 //
-//	GET /auth/login    -> redirect to the CAS login page
-//	GET /auth/callback -> validate the returned ticket and start a session
+//	GET /auth/login    -> redirect to the OIDC authorization endpoint
+//	GET /auth/callback -> exchange the returned code and start a session
 //	GET /auth/logout   -> destroy the local session
 //	GET /auth/me       -> return the currently authenticated user
 //
-// Only emails present in the email allowlist may start a session; everyone else is
-// sent back to the frontend with an email_not_allowed error.
-func NewAuthHandler(r *chi.Mux, config auth.AuthConfig, sessions auth.SessionStore) *AuthHandler {
-	cas := auth.NewCASClient(config.BaseURL, config.ServiceURL)
+// Only usernames present in the allowlist may start a session; everyone else is sent
+// back to the frontend with a user_not_allowed error.
+func NewAuthHandler(ctx context.Context, r *chi.Mux, config auth.AuthConfig, sessions auth.SessionStore) (*AuthHandler, error) {
+	oidcClient, err := auth.NewOIDCClient(
+		ctx,
+		config.OIDCIssuerURL,
+		config.OIDCClientID,
+		config.OIDCClientSecret,
+		config.OIDCRedirectURL,
+		config.OIDCScopes,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize oidc client: %w", err)
+	}
 
 	handler := &AuthHandler{
 		config:   config,
-		cas:      cas,
-		tickets:  auth.NewTicketExchange(ticketReplayWindow, cas.Validate),
+		oidc:     oidcClient,
+		codes:    auth.NewCodeExchange(codeReplayWindow),
 		sessions: sessions,
 		fileLock: sync.RWMutex{},
+		router:   r,
 	}
 
-	r.Route("/auth", func(r chi.Router) {
-		r.Get("/login", handler.Login)
-		r.Get("/callback", HandlerFunc(handler.Callback).ServeHTTP)
-		r.Get("/logout", handler.Logout)
-		r.Get("/me", HandlerFunc(handler.Me).ServeHTTP)
-		r.Get("/usernames", handler.AllowedUsernames)
-		r.Post("/usernames", HandlerFunc(handler.RegisterUsername).ServeHTTP)
-		r.Delete("/usernames", HandlerFunc(handler.RemoveUsername).ServeHTTP)
+	return handler, nil
+}
+
+func (h *AuthHandler) RegisterNonCallbackEndpoints() {
+	h.router.Route("/auth", func(r chi.Router) {
+		r.Get("/login", h.Login)
+		r.Get("/logout", h.Logout)
+		r.Get("/me", HandlerFunc(h.Me).ServeHTTP)
+		r.Get("/usernames", h.AllowedUsernames)
+		r.Post("/usernames", HandlerFunc(h.RegisterUsername).ServeHTTP)
+		r.Delete("/usernames", HandlerFunc(h.RemoveUsername).ServeHTTP)
 	})
-
-	return handler
 }
 
-// Login redirects the browser to GT CAS. The service parameter is our callback URL,
-// which must be registered with Georgia Tech.
+// Login redirects the browser to the provider. The redirect URL is the callback
+// registered with Georgia Tech as GT_OIDC_REDIRECT_URL.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, h.cas.LoginURL(), http.StatusFound)
-}
-
-// Callback receives the one-time service ticket from CAS, validates it, and on success
-// starts a session and returns the user to the frontend. A session is only started when
-// the email CAS released is present in the allowlist.
-func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) *HandlerError {
-	ticket := r.URL.Query().Get("ticket")
-	if ticket == "" {
-		log.Printf("cas callback received without a service ticket")
-		http.Redirect(w, r, h.errorRedirect("missing_ticket"), http.StatusFound)
-		return nil
+	state, err := auth.NewRandomToken()
+	if err != nil {
+		log.Printf("failed to generate oidc state: %v", err)
+		http.Error(w, "failed to start login", http.StatusInternalServerError)
+		return
 	}
 
-	// The ticket is exchanged immediately: it is single-use and expires within seconds.
-	// It is never logged or persisted. Repeats of the same ticket, which happen when a
-	// browser requests the callback more than once, replay the first outcome.
-	user, err := h.tickets.Exchange(r.Context(), ticket)
+	nonce, err := auth.NewRandomToken()
 	if err != nil {
-		log.Printf("cas ticket validation failed: %v", redactTicket(err.Error(), ticket))
+		log.Printf("failed to generate oidc nonce: %v", err)
+		http.Error(w, "failed to start login", http.StatusInternalServerError)
+		return
+	}
+
+	verifier := auth.NewCodeVerifier()
+	http.SetCookie(w, h.loginCookie(state, nonce, verifier))
+	http.Redirect(w, r, h.oidc.AuthCodeURL(state, nonce, verifier), http.StatusFound)
+}
+
+// Callback receives the one-time authorization code, exchanges it for a verified id
+// token, and on success starts a session and returns the user to the frontend. A session
+// is only started when the username released by the provider is present in the allowlist.
+func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) *HandlerError {
+	query := r.URL.Query()
+
+	if providerError := query.Get("error"); providerError != "" {
+		log.Printf("oidc provider returned an error: %s: %s", providerError, query.Get("error_description"))
 		http.Redirect(w, r, h.errorRedirect("auth_failed"), http.StatusFound)
 		return nil
 	}
 
-	log.Printf("Hello there!!!!!!!!")
+	code := query.Get("code")
+	state := query.Get("state")
+	if code == "" || state == "" || len(state) > 256 {
+		log.Printf("oidc callback received without an authorization code or state")
+		http.Redirect(w, r, h.errorRedirect("missing_code"), http.StatusFound)
+		return nil
+	}
+
+	nonce, verifier, ok := h.loginCredentials(r, state)
+	if !ok {
+		// A reload after a successful login no longer has the one-time login cookie but
+		// does have a session cookie, so send the user on instead of showing an error.
+		if _, err := h.CurrentSession(r); err == nil {
+			http.Redirect(w, r, h.config.FrontendURL, http.StatusFound)
+			return nil
+		}
+
+		log.Printf("oidc callback had an invalid or expired state")
+		http.Redirect(w, r, h.errorRedirect("invalid_state"), http.StatusFound)
+		return nil
+	}
+
+	// The login cookies are single-use and are cleared before the code is redeemed.
+	http.SetCookie(w, h.expiredLoginCookie(state))
+
+	// The code is exchanged immediately: it is single-use and expires within seconds.
+	// It is never logged or persisted. Repeats of the same code, which happen when a
+	// browser requests the callback more than once, replay the first outcome.
+	user, err := h.codes.Exchange(r.Context(), code, func(ctx context.Context) (*auth.User, error) {
+		return h.oidc.Exchange(ctx, code, verifier, nonce)
+	})
+	if err != nil {
+		log.Printf("oidc code exchange failed: %v", redactCode(err.Error(), code))
+		http.Redirect(w, r, h.errorRedirect("auth_failed"), http.StatusFound)
+		return nil
+	}
 
 	allowed := h.ContainsUsername(user.Username)
 	if !allowed {
@@ -118,13 +184,13 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) *HandlerE
 	}
 
 	http.SetCookie(w, h.sessionCookie(session))
-	log.Printf("user %s logged in through georgia tech sso", user.Username)
+	log.Printf("user %s logged in through georgia tech sso via oidc", user.Username)
 	http.Redirect(w, r, h.config.FrontendURL, http.StatusFound)
 	return nil
 }
 
 // Logout deletes the local session and clears the cookie. It does not end the user's
-// CAS session; users stay signed in to other Georgia Tech apps.
+// session at the identity provider; users stay signed in to other Georgia Tech apps.
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(h.config.CookieName); err == nil {
 		h.sessions.Delete(cookie.Value)
@@ -165,7 +231,7 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 	}
 	for _, r := range request.Username {
 		if unicode.IsUpper(r) {
-			return NewHandlerError("usernames can only contain lowercase letters and numbers.", http.StatusBadRequest);
+			return NewHandlerError("usernames can only contain lowercase letters and numbers.", http.StatusBadRequest)
 		}
 	}
 
@@ -284,6 +350,51 @@ func (h *AuthHandler) CurrentSession(r *http.Request) (*auth.Session, error) {
 	return h.sessions.Get(cookie.Value)
 }
 
+// loginCookie stores the nonce and PKCE verifier for one in-flight login. The state is
+// part of the cookie name so several logins can be in progress at once, for example in
+// different browser tabs. SameSite=Lax is enough because the provider returns with a
+// top-level GET redirect.
+func (h *AuthHandler) loginCookie(state, nonce, verifier string) *http.Cookie {
+	return &http.Cookie{
+		Name:     loginCookiePrefix + state,
+		Value:    nonce + "." + verifier,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.config.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(loginCookieTTL.Seconds()),
+	}
+}
+
+func (h *AuthHandler) expiredLoginCookie(state string) *http.Cookie {
+	return &http.Cookie{
+		Name:     loginCookiePrefix + state,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.config.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	}
+}
+
+// loginCredentials returns the nonce and PKCE verifier saved by Login. Looking the
+// cookie up by state makes the state check implicit: a callback with an unknown state
+// simply has no matching cookie.
+func (h *AuthHandler) loginCredentials(r *http.Request, state string) (nonce, verifier string, ok bool) {
+	cookie, err := r.Cookie(loginCookiePrefix + state)
+	if err != nil {
+		return "", "", false
+	}
+
+	nonce, verifier, found := strings.Cut(cookie.Value, ".")
+	if !found || nonce == "" || verifier == "" {
+		return "", "", false
+	}
+
+	return nonce, verifier, true
+}
+
 func (h *AuthHandler) sessionCookie(session *auth.Session) *http.Cookie {
 	return &http.Cookie{
 		Name:     h.config.CookieName,
@@ -331,11 +442,11 @@ func (h *AuthHandler) errorRedirect(code string) string {
 	return frontendURL.String()
 }
 
-// redactTicket removes a service ticket from a message before it is logged. CAS failure
-// messages and transport errors can both echo the ticket, which is a credential.
-func redactTicket(message, ticket string) string {
-	if ticket == "" {
+// redactCode removes an authorization code from a message before it is logged. Provider
+// failure messages and transport errors can both echo the code, which is a credential.
+func redactCode(message, code string) string {
+	if code == "" {
 		return message
 	}
-	return strings.ReplaceAll(message, ticket, "[redacted]")
+	return strings.ReplaceAll(message, code, "[redacted]")
 }

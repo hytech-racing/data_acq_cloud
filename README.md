@@ -57,35 +57,55 @@ AWS_ACCESS_KEY=minioadmin
 AWS_SECRET_KEY=minioadmin
 ENV=dev
 USING_NON_AWS_COMPATIBLE_STORE=true
-GT_CAS_SERVICE_URL=http://localhost:8080/api/v2/auth/callback
-GT_CAS_BASE_URL=https://sso.gatech.edu/cas
+GT_OIDC_ISSUER_URL=https://your-gt-oidc-issuer.example.edu
+GT_OIDC_CLIENT_ID=your-gt-oidc-client-id
+GT_OIDC_CLIENT_SECRET=your-gt-oidc-client-secret
+GT_OIDC_REDIRECT_URL=http://localhost:8080/api/v2/auth/callback
 FRONTEND_URL=http://localhost:5173
 ```
+
+The OIDC values are placeholders. Ask Georgia Tech OIT for the issuer URL and client
+credentials, then replace them before starting the server.
 
 Navigate to the `cloud_webserver_v2` directory, and run `docker compose up --build`. The server should be available at `http://localhost:8080`.
 
 Note: this dev setup currently does not support downloading files or viewing graph previews on the `query-frontend`. Visit `http://localhost:9001`
 to download these files instead.  
 
-## Georgia Tech SSO (CAS)
+## Georgia Tech SSO (OIDC)
 
-The `cloud_webserver_v2` service authenticates users through Georgia Tech's CAS 3.0 server. The flow is:
+The `cloud_webserver_v2` service authenticates users through Georgia Tech's OpenID Connect
+provider. The flow is:
 
 1. The frontend sends the browser to `GET /auth/login` (also reachable at `/api/v2/auth/login`).
-2. The server redirects to `https://sso.gatech.edu/cas/login` with our callback URL as the `service` parameter.
-3. After signing in with a GT account, the browser lands on `GET /auth/callback?ticket=...`.
-4. The server validates the ticket against `/p3/serviceValidate`, issues its own session cookie, and redirects to `FRONTEND_URL`.
-5. The frontend can call `GET /auth/me` (with credentials) to read the current user, and `GET /auth/logout` to end the local session.
+2. The server generates a state, nonce and PKCE verifier, saves them in a short-lived
+   HttpOnly cookie, and redirects to the provider's authorization endpoint discovered from
+   `GT_OIDC_ISSUER_URL`.
+3. After signing in with a GT account, the browser lands on `GET /auth/callback?code=...&state=...`.
+4. The server checks the state, redeems the one-time code at the token endpoint, verifies the
+   id token's signature, issuer, audience and nonce, issues its own session cookie, and
+   redirects to `FRONTEND_URL`.
+5. The frontend can call `GET /auth/me` (with credentials) to read the current user, and
+   `GET /auth/logout` to end the local session.
 
-Georgia Tech IT must register the callback URL (`GT_CAS_SERVICE_URL`) before the flow works. An unregistered
-service produces "Service not authorized" and `INVALID_TICKET` errors.
+The username used for the admin allowlist comes from the `username`, `preferred_username` or
+`email` claim (in that order), with any `@gatech.edu` suffix removed. Configure the provider
+to release one of those claims.
+
+Georgia Tech OIT must register the client and the callback URL (`GT_OIDC_REDIRECT_URL`)
+before the flow works. The issuer URL and the client credentials are issued by OIT; the
+values in the example above are placeholders. The server performs OIDC discovery at
+startup, so it will not start until `GT_OIDC_ISSUER_URL` points at a reachable provider.
 
 Relevant environment variables:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `GT_CAS_BASE_URL` | `https://sso.gatech.edu/cas` | CAS server base URL. |
-| `GT_CAS_SERVICE_URL` | *(required)* | The registered callback URL, e.g. `http://localhost:8080/api/v2/auth/callback`. It must be identical between the login redirect and the validation request. |
+| `GT_OIDC_ISSUER_URL` | *(required)* | OIDC issuer URL; discovery is read from `<issuer>/.well-known/openid-configuration`. |
+| `GT_OIDC_CLIENT_ID` | *(required)* | Client identifier issued by Georgia Tech. |
+| `GT_OIDC_CLIENT_SECRET` | *(empty)* | Client secret issued by Georgia Tech. Leave empty only for a public client that uses PKCE without a secret. |
+| `GT_OIDC_REDIRECT_URL` | *(required)* | The registered callback URL, e.g. `http://localhost:8080/api/v2/auth/callback`. It must be identical to the URL registered with the provider. |
+| `GT_OIDC_SCOPES` | `openid profile email` | Space or comma separated scopes. `openid` is always added. |
 | `FRONTEND_URL` | `http://localhost:5173` | Where the browser is sent after logging in or out. |
 | `SESSION_COOKIE_NAME` | `hytech_session` | Name of the session cookie. |
 | `SESSION_COOKIE_SECURE` | `true`, or `false` when `ENV=dev` | Marks the session cookie as HTTPS-only. |
