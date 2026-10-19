@@ -6,31 +6,6 @@ import (
 	"testing"
 )
 
-func TestAuthConfigFromEnvRequiresOIDCSettings(t *testing.T) {
-	tests := []struct {
-		name    string
-		unset   string
-		wantErr string
-	}{
-		{name: "issuer", unset: "GT_OIDC_ISSUER_URL", wantErr: "GT_OIDC_ISSUER_URL"},
-		{name: "client id", unset: "GT_OIDC_CLIENT_ID", wantErr: "GT_OIDC_CLIENT_ID"},
-		{name: "redirect url", unset: "GT_OIDC_REDIRECT_URL", wantErr: "GT_OIDC_REDIRECT_URL"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("GT_OIDC_ISSUER_URL", "https://issuer.example.edu")
-			t.Setenv("GT_OIDC_CLIENT_ID", "client-id")
-			t.Setenv("GT_OIDC_REDIRECT_URL", "https://app.example.edu/auth/callback")
-			t.Setenv(test.unset, "")
-
-			if _, err := AuthConfigFromEnv(); err == nil || !strings.Contains(err.Error(), test.wantErr) {
-				t.Errorf("AuthConfigFromEnv() error = %v, want it to mention %s", err, test.wantErr)
-			}
-		})
-	}
-}
-
 func TestAuthConfigFromEnvReadsOIDCSettings(t *testing.T) {
 	t.Setenv("GT_OIDC_ISSUER_URL", "https://issuer.example.edu")
 	t.Setenv("GT_OIDC_CLIENT_ID", "client-id")

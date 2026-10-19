@@ -22,11 +22,6 @@ import (
 // The usernames storage file to write to
 const UsernamesFile = "config/usernames.json"
 
-// codeReplayWindow is how long the outcome of an authorization code exchange is replayed.
-// Codes are single-use, so a browser that visits the callback more than once for a single
-// login must not have to redeem the code a second time.
-const codeReplayWindow = time.Minute
-
 const (
 	// loginCookiePrefix is followed by the login's state, which keeps concurrent logins
 	// in different browser tabs from overwriting each other.
@@ -44,7 +39,6 @@ const (
 type AuthHandler struct {
 	config   auth.AuthConfig
 	oidc     *auth.OIDCClient
-	codes    *auth.CodeExchange
 	sessions auth.SessionStore
 	fileLock sync.RWMutex
 	router   *chi.Mux
@@ -80,7 +74,6 @@ func NewAuthHandler(ctx context.Context, r *chi.Mux, config auth.AuthConfig, ses
 	handler := &AuthHandler{
 		config:   config,
 		oidc:     oidcClient,
-		codes:    auth.NewCodeExchange(codeReplayWindow),
 		sessions: sessions,
 		fileLock: sync.RWMutex{},
 		router:   r,
@@ -160,11 +153,8 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) *HandlerE
 	http.SetCookie(w, h.expiredLoginCookie(state))
 
 	// The code is exchanged immediately: it is single-use and expires within seconds.
-	// It is never logged or persisted. Repeats of the same code, which happen when a
-	// browser requests the callback more than once, replay the first outcome.
-	user, err := h.codes.Exchange(r.Context(), code, func(ctx context.Context) (*auth.User, error) {
-		return h.oidc.Exchange(ctx, code, verifier, nonce)
-	})
+	// It is never logged or persisted.
+	user, err := h.oidc.Exchange(r.Context(), code, verifier, nonce)
 	if err != nil {
 		log.Printf("oidc code exchange failed: %v", redactCode(err.Error(), code))
 		http.Redirect(w, r, h.errorRedirect("auth_failed"), http.StatusFound)
