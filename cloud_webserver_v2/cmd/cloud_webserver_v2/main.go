@@ -168,7 +168,9 @@ func main() {
 		log.Fatal(err)
 	}
 	// Callback URLs for GTSSO were unfortunately registered before we developed V2 of the DOPS backend.
-	// This means that we have to use
+	// Since we only registered http://localhost:3000/api/auth/oauth2/callback/gatech and https://dops.hytechracing.org/auth/callback,
+	// we have to make do with these non-uniform API endpoints for oauth callbacks
+	router.Get("/auth/callback", handler.HandlerFunc(authHandler.Callback).ServeHTTP)
 	router.Get("/api/auth/oauth2/callback/gatech", handler.HandlerFunc(authHandler.Callback).ServeHTTP)
 
 	router.Mount("/api/v2", router)

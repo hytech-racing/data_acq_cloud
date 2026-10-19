@@ -15,10 +15,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// ErrAuthenticationFailed is returned when the provider answered, but the answer could
-// not be turned into an authenticated user.
-var ErrAuthenticationFailed = errors.New("oidc authentication failed")
-
 // ValidationError describes a login the provider definitively rejected. Unlike transport
 // or discovery errors, repeating the same request will not change the outcome.
 type ValidationError struct {
@@ -142,7 +138,7 @@ func userFromIDToken(token *oidc.IDToken) (*User, error) {
 
 	username := usernameFromClaims(claims, token.Subject)
 	if username == "" {
-		return nil, ErrAuthenticationFailed
+		return nil, errors.New("oidc authentication failed")
 	}
 
 	return &User{
