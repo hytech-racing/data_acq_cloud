@@ -57,11 +57,13 @@ AWS_ACCESS_KEY=minioadmin
 AWS_SECRET_KEY=minioadmin
 ENV=dev
 USING_NON_AWS_COMPATIBLE_STORE=true
-GT_OIDC_ISSUER_URL=https://your-gt-oidc-issuer.example.edu
-GT_OIDC_CLIENT_ID=your-gt-oidc-client-id
-GT_OIDC_CLIENT_SECRET=your-gt-oidc-client-secret
-GT_OIDC_REDIRECT_URL=http://localhost:8080/api/v2/auth/callback
+GT_OIDC_ISSUER_URL=https://sso.gatech.edu/cas/oidc
+GT_OIDC_CLIENT_ID=1144ee23-1585-4eea-bd3e-106d5519e2f1
+GT_OIDC_CLIENT_SECRET=ask-sw-leads-for-this
+GT_OIDC_REDIRECT_URL=http://localhost:3000/api/auth/oauth2/callback/gatech
+GT_OIDC_SCOPES=openid profile email
 FRONTEND_URL=http://localhost:5173
+DEFAULT_USERNAME=your-gt-username
 ```
 
 The OIDC values are placeholders. Ask Georgia Tech OIT for the issuer URL and client
