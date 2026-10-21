@@ -9,8 +9,6 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-RUN mkdir /config/
-
 # Download Go module dependencies
 COPY go.mod go.sum ./
 RUN go mod download

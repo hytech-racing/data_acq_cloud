@@ -163,7 +163,7 @@ func main() {
 	// processing should be stopped.
 	router.Use(middleware.Timeout(2 * time.Minute))
 
-	authHandler, err := handler.NewAuthHandler(ctx, router, authConfig, sessionStore)
+	authHandler, err := handler.NewAuthHandler(ctx, router, authConfig, sessionStore, dbClient)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -185,10 +185,11 @@ func main() {
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
 
-	_, check_file_err := os.Stat(handler.UsernamesFile)
+	// Seed the allowlist with the default username when it is empty, so a fresh
+	// deployment always has at least one account that can sign in.
 	defaultUsername := os.Getenv("DEFAULT_USERNAME")
-	if check_file_err != nil && defaultUsername != "" {
-		os.WriteFile(handler.UsernamesFile, []byte("[\""+defaultUsername+"\"]"), 0644)
+	if err := dbClient.AllowedUsernameUseCase().EnsureDefaultUsername(ctx, defaultUsername); err != nil {
+		log.Printf("could not seed the default username: %v", err)
 	}
 
 	// Graceful shutdown: listen for interrupt signals

@@ -3,24 +3,21 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"slices"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/auth"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database/usecase"
 )
-
-// The usernames storage file to write to
-const UsernamesFile = "config/usernames.json"
 
 const (
 	// loginCookiePrefix is followed by the login's state, which keeps concurrent logins
@@ -40,7 +37,7 @@ type AuthHandler struct {
 	config   auth.AuthConfig
 	oidc     *auth.OIDCClient
 	sessions auth.SessionStore
-	fileLock sync.RWMutex
+	dbClient *database.DatabaseClient
 	router   *chi.Mux
 }
 
@@ -58,7 +55,7 @@ type usernameRequest struct {
 //
 // Only usernames present in the allowlist may start a session; everyone else is sent
 // back to the frontend with a user_not_allowed error.
-func NewAuthHandler(ctx context.Context, r *chi.Mux, config auth.AuthConfig, sessions auth.SessionStore) (*AuthHandler, error) {
+func NewAuthHandler(ctx context.Context, r *chi.Mux, config auth.AuthConfig, sessions auth.SessionStore, dbClient *database.DatabaseClient) (*AuthHandler, error) {
 	oidcClient, err := auth.NewOIDCClient(
 		ctx,
 		config.OIDCIssuerURL,
@@ -75,7 +72,7 @@ func NewAuthHandler(ctx context.Context, r *chi.Mux, config auth.AuthConfig, ses
 		config:   config,
 		oidc:     oidcClient,
 		sessions: sessions,
-		fileLock: sync.RWMutex{},
+		dbClient: dbClient,
 		router:   r,
 	}
 
@@ -161,7 +158,12 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) *HandlerE
 		return nil
 	}
 
-	allowed := h.ContainsUsername(user.Username)
+	allowed, err := h.ContainsUsername(r.Context(), user.Username)
+	if err != nil {
+		log.Printf("failed to check the username allowlist: %v", err)
+		http.Redirect(w, r, h.errorRedirect("auth_failed"), http.StatusFound)
+		return nil
+	}
 	if !allowed {
 		log.Printf("rejected login for an username that is not on the allowlist")
 		http.Redirect(w, r, h.errorRedirect("user_not_allowed"), http.StatusFound)
@@ -225,33 +227,16 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 		}
 	}
 
-	h.fileLock.Lock()
-	defer h.fileLock.Unlock()
-
-	var allowedUsernames []string
-	raw, err := os.ReadFile(UsernamesFile)
-	if err != nil {
-		allowedUsernames = []string{request.Username}
-		os.WriteFile(UsernamesFile, []byte("[\""+request.Username+"\"]"), 0644)
-		w.WriteHeader(http.StatusCreated)
-		return nil
-	}
-
-	err = json.Unmarshal(raw, &allowedUsernames)
-	if err != nil {
-		panic(err)
-	}
-	if slices.Contains(allowedUsernames, request.Username) {
+	err = h.dbClient.AllowedUsernameUseCase().AddUsername(r.Context(), request.Username)
+	if errors.Is(err, usecase.ErrUsernameAlreadyExists) {
 		return NewHandlerError("user is already an admin", http.StatusBadRequest)
 	}
-	allowedUsernames = append(allowedUsernames, request.Username)
-	data, err := json.MarshalIndent(allowedUsernames, "", "  ")
 	if err != nil {
-		panic(err)
+		log.Printf("failed to add username to the allowlist: %v", err)
+		return NewHandlerError("failed to add username to the allowlist", http.StatusInternalServerError)
 	}
-	os.WriteFile(UsernamesFile, data, 0644)
-	w.WriteHeader(http.StatusCreated)
 
+	w.WriteHeader(http.StatusCreated)
 	return nil
 }
 
@@ -270,65 +255,28 @@ func (h *AuthHandler) RemoveUsername(w http.ResponseWriter, r *http.Request) *Ha
 		return NewHandlerError("Cannot delete self from admin list", http.StatusBadRequest)
 	}
 
-	h.fileLock.Lock()
-	defer h.fileLock.Unlock()
-
-	var allowedUsernames []string
-	raw, err := os.ReadFile(UsernamesFile)
+	err = h.dbClient.AllowedUsernameUseCase().RemoveUsername(r.Context(), request.Username)
 	if err != nil {
-		return NewHandlerError("Usernames file could not be read.", http.StatusBadRequest)
+		log.Printf("failed to remove username from the allowlist: %v", err)
+		return NewHandlerError("failed to remove username from the allowlist", http.StatusInternalServerError)
 	}
 
-	err = json.Unmarshal(raw, &allowedUsernames)
-	if err != nil {
-		return NewHandlerError("Usernames file could not be read.", http.StatusBadRequest)
-	}
-	modifiedUsernames := allowedUsernames[:0]
-	for _, username := range allowedUsernames {
-		if username != request.Username {
-			modifiedUsernames = append(modifiedUsernames, username)
-		}
-	}
-
-	data, err := json.MarshalIndent(modifiedUsernames, "", "  ")
-	if err != nil {
-		panic(err)
-	}
-	os.WriteFile(UsernamesFile, data, 0644)
 	w.WriteHeader(http.StatusCreated)
-
 	return nil
 }
 
 func (h *AuthHandler) AllowedUsernames(w http.ResponseWriter, r *http.Request) {
-	render.JSON(w, r, h.getAllowedUsernames())
-}
-
-func (h *AuthHandler) ContainsUsername(username string) bool {
-	return slices.Contains(h.getAllowedUsernames(), username)
-}
-
-func (h *AuthHandler) getAllowedUsernames() []string {
-	h.fileLock.RLock()
-	defer h.fileLock.RUnlock()
-
-	data, err := os.ReadFile(UsernamesFile)
+	usernames, err := h.dbClient.AllowedUsernameUseCase().GetAllUsernames(r.Context())
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("getAllowedEmails: failed to read file: %v", err)
-		}
-		return []string{}
+		log.Printf("failed to read the username allowlist: %v", err)
+		usernames = []string{}
 	}
 
-	var usernames []string
-	if err := json.Unmarshal(data, &usernames); err != nil {
-		log.Printf("getAllowedEmails: failed to unmarshal usernames: %v", err)
-		return []string{}
-	}
+	render.JSON(w, r, usernames)
+}
 
-	log.Printf("usernames: %v", usernames)
-
-	return usernames
+func (h *AuthHandler) ContainsUsername(ctx context.Context, username string) (bool, error) {
+	return h.dbClient.AllowedUsernameUseCase().ContainsUsername(ctx, username)
 }
 
 // CurrentSession looks up the session referenced by the request's session cookie.
