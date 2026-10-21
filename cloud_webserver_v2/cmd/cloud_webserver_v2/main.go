@@ -126,7 +126,7 @@ func main() {
 		FileProcessor: fileProcessor,
 	}
 
-	// Setup Georgia Tech CAS single sign-on
+	// Setup Georgia Tech single sign-on over OIDC
 	authConfig, err := auth.AuthConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
@@ -151,7 +151,7 @@ func main() {
 	}))
 
 	// Simple middleware stack
-	// The redacting formatter keeps single-use CAS service tickets out of the request log.
+	// The redacting formatter keeps single-use OIDC authorization codes out of the request log.
 	router.Use(middleware.RequestLogger(hytech_middleware.NewRedactingLogFormatter()))
 	router.Use(middleware.Heartbeat("/ping"))
 	router.Use(middleware.RequestID)
@@ -163,22 +163,33 @@ func main() {
 	// processing should be stopped.
 	router.Use(middleware.Timeout(2 * time.Minute))
 
+	authHandler, err := handler.NewAuthHandler(ctx, router, authConfig, sessionStore, dbClient)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Callback URLs for GTSSO were unfortunately registered before we developed V2 of the DOPS backend.
+	// Since we only registered http://localhost:3000/api/auth/oauth2/callback/gatech and https://dops.hytechracing.org/auth/callback,
+	// we have to make do with these non-uniform API endpoints for oauth callbacks
+	router.Get("/auth/callback", handler.HandlerFunc(authHandler.Callback).ServeHTTP)
+	router.Get("/api/auth/oauth2/callback/gatech", handler.HandlerFunc(authHandler.Callback).ServeHTTP)
+
 	router.Mount("/api/v2", router)
 	log.Println("Ready to accept requests!")
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("HyTech Data Acquisition and Operations Cloud Webserver"))
 	})
 
-	authHandler := handler.NewAuthHandler(router, authConfig, sessionStore)
+	authHandler.RegisterNonCallbackEndpoints()
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, authHandler)
 	handler.NewUploadHandler(router, dbClient, fileProcessor)
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
 
-	_, check_file_err := os.Stat(handler.UsernamesFile)
+	// Seed the allowlist with the default username when it is empty, so a fresh
+	// deployment always has at least one account that can sign in.
 	defaultUsername := os.Getenv("DEFAULT_USERNAME")
-	if check_file_err != nil && defaultUsername != "" {
-		os.WriteFile(handler.UsernamesFile, []byte("[\""+defaultUsername+"\"]"), 0644)
+	if err := dbClient.AllowedUsernameUseCase().EnsureDefaultUsername(ctx, defaultUsername); err != nil {
+		log.Printf("could not seed the default username: %v", err)
 	}
 
 	// Graceful shutdown: listen for interrupt signals
@@ -211,5 +222,5 @@ func main() {
 		os.Exit(0)
 	}()
 
-	http.ListenAndServe(":8080", router)
+	http.ListenAndServe(":3000", router)
 }
