@@ -4,11 +4,3 @@
 uploads/
 /logs
 htmls/
-
-# Benchmark and profiling output
-/*.txt
-*.test
-*.out
-*.prof
-*.h5
-*.mcap
