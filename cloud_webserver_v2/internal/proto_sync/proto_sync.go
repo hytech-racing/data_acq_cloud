@@ -78,7 +78,7 @@ func (s *SyncService) retrieveData(ctx context.Context, client *github.Client, l
 
 			// Add file to s3 for backup
 			filePaths3 := filepath.Join(repo, *asset.Name)
-			err = s.s3Repository.WriteObjectReader(ctx, htmlReader, filePaths3)
+			err = s.s3Repository.PutObject(ctx, htmlReader, filePaths3)
 			if err != nil {
 				return err
 			}

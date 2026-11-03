@@ -36,6 +36,7 @@ type VehicleRunModel struct {
 	CarModel       string                 `bson:"car_model,omitempty"`
 	Date           time.Time              `bson:"date"`
 	MatFiles       []FileModel            `bson:"mat_files,omitempty"`
+	Hidden         bool                   `bson:"hidden,omitempty"`
 }
 
 type VehicleRunModelResponse struct {
@@ -50,6 +51,8 @@ type VehicleRunModelResponse struct {
 	Location       *string                        `json:"location"`
 	EventType      *string                        `json:"event_type"`
 	DynamicFields  map[string]interface{}         `json:"dynamic_fields"`
+	Hidden         bool 						  `json:"hidden"`
+	McapOnly bool `json:"mcap_only"`
 }
 
 func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model VehicleRunModel) VehicleRunModelResponse {
@@ -62,12 +65,17 @@ func VehicleRunSerialize(ctx context.Context, s3Repo *s3.S3Repository, model Veh
 		Location:       model.Location,
 		EventType:      model.EventType,
 		DynamicFields:  model.DynamicFields,
+		Hidden:         model.Hidden,
 	}
 
 	if model.McapFiles != nil && len(model.McapFiles) > 0 {
 		fileResponses := getFileModelResponse(ctx, s3Repo, model.McapFiles)
 		modelOut.McapFiles = fileResponses
 	}
+
+	// A run is considered mcap-only when no converted .h5 file was attached to it, which is
+	// the case when converting the uploaded MCAP into HDF5 failed.
+	modelOut.McapOnly = len(model.MatFiles) == 0
 
 	if model.MatFiles != nil && len(model.MatFiles) > 0 {
 		fileResponses := getFileModelResponse(ctx, s3Repo, model.MatFiles)

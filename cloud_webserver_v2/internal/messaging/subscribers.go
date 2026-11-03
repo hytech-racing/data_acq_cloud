@@ -215,6 +215,7 @@ func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessag
 	var hdf5Writer *subscribers.RawHDF5Writer
 	var fileName string
 	var filePath string
+	var hdf5Err error
 	for msg := range ch {
 		if msg.GetContent().Topic == EOF {
 			break
@@ -222,28 +223,36 @@ func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessag
 			if name, exists := msg.GetContent().Data["file_name"]; exists {
 				fileName = name.(string)
 			} else {
-				break
+				hdf5Err = fmt.Errorf("no file name was provided for the hdf5 file")
+				continue
 			}
 
 			if path, exists := msg.GetContent().Data["file_path"]; exists {
 				filePath = path.(string)
 			} else {
-				break
+				hdf5Err = fmt.Errorf("no file path was provided for the hdf5 file")
+				continue
 			}
 			var err error
 			hdf5Writer, err = subscribers.CreateRawHDF5Writer(filePath, fileName)
 			if err != nil {
 				log.Printf("could not start matlab worker: %v", err)
-				break
+				hdf5Err = err
 			}
-		} else {
-			if hdf5Writer != nil {
-				err := hdf5Writer.AddSignalValue(msg.GetContent())
-				if err != nil {
-					log.Fatalf("AddSignalValue error: %v", err)
-				}
+		} else if hdf5Writer != nil && hdf5Err == nil {
+			if err := hdf5Writer.AddSignalValue(msg.GetContent()); err != nil {
+				log.Printf("could not add signal value to hdf5 file: %v", err)
+				hdf5Err = err
 			}
 		}
+	}
+
+	// The channel still has to be drained when no hdf5 file could be generated, which is why
+	// errors are recorded instead of stopping the loop early. Nothing is sent as a result in
+	// that case, which callers treat as a failed conversion.
+	if hdf5Writer == nil || hdf5Err != nil {
+		log.Printf("no hdf5 file was generated for %v: %v", fileName, hdf5Err)
+		return
 	}
 
 	if hdf5Writer.MaxSignalLength() > 0 {
