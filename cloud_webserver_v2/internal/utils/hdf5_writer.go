@@ -12,33 +12,9 @@ import (
 // fixed-length HDF5 arrays to avoid variable-length global heap exhaustion.
 const MaxFixedBytesLen = 128
 
-// Wrapper to store our message data and timestamps
-type HDF5WrapperMessage struct {
-	Data      interface{} `hdf5:"Message"`
-	Timestamp float64     `hdf5:"Timestamp"`
-}
-
-// HDF5FixedBytesMessage is used when Data is []byte (protobuf bytes fields).
-// The fixed-length byte array is stored inline in the HDF5 dataset, bypassing
-// the global heap that variable-length types require.
-type HDF5FixedBytesMessage struct {
-	Data      [MaxFixedBytesLen]byte
-	Timestamp float64
-}
-
-func toFixedBytesMessage(msg *HDF5WrapperMessage) *HDF5FixedBytesMessage {
-	var buf [MaxFixedBytesLen]byte
-	switch v := msg.Data.(type) {
-	case []byte:
-		copy(buf[:], v)
-	case string:
-		copy(buf[:], v)
-	}
-	return &HDF5FixedBytesMessage{
-		Data:      buf,
-		Timestamp: msg.Timestamp,
-	}
-}
+// MaxTableChunkRows is the max number of rows per HDF5 storage chunk in a signal's dataset.
+// Datasets with fewer rows use their row count so small signals don't allocate a mostly empty chunk.
+const MaxTableChunkRows = 4096
 
 type HDF5Writer struct {
 	file         *hdf5.File
@@ -108,38 +84,8 @@ func (writer *HDF5Writer) exploreAndAddDataset(path string, chunk *hdf5.Group, d
 			}
 		}
 
-	case []*HDF5WrapperMessage:
-		msgs := data.([]*HDF5WrapperMessage)
-
-		// Create our own DataType based on what data we have
-		log.Printf("DEBUG CreateHDF5DataType: path=%q dataType=%T dataVal=%v", path, msgs[0].Data, msgs[0].Data)
-		dtype, err := CreateHDF5DataType(msgs) // is it str, char, slice etc?
-		if err != nil {
-			return fmt.Errorf("CreateHDF5DataType failed at path %q (type %T): %w", path, msgs[0].Data, err)
-		}
-
-		// write table to chunk
-		table, err := chunk.CreateTable(path, dtype, 10, 0)
-
-		if err != nil {
-			return fmt.Errorf("CreateTable failed at path %q (type %T): %w", path, msgs[0].Data, err)
-		}
-		defer table.Close()
-
-		// []byte and string fields use HDF5FixedBytesMessage to avoid
-		// variable-length global heap allocation.
-		_, isBytes := msgs[0].Data.([]byte)
-		_, isString := msgs[0].Data.(string)
-		for i := 0; i != len(msgs); i++ {
-			if isBytes || isString {
-				err = table.Append(toFixedBytesMessage(msgs[i]))
-			} else {
-				err = table.Append(msgs[i])
-			}
-			if err != nil {
-				return fmt.Errorf("table.Append failed at path %q (type %T): %w", path, msgs[i].Data, err)
-			}
-		}
+	case *HDF5Column:
+		return data.(*HDF5Column).Write(chunk, path)
 
 	// Leaving this open for interpolatedMat subscriber for now but we should really take this out tbh
 	case [][]float64:
@@ -181,84 +127,6 @@ func FlattenSlice(data [][]float64) []float64 {
 	return flattened
 }
 
-// CreateDataType func Creates DataType based on the given message
-func CreateHDF5DataType(data []*HDF5WrapperMessage) (*hdf5.Datatype, error) {
-	// Protobuf bytes fields ([]byte) use a fixed-length byte array to avoid
-	// variable-length global heap exhaustion in HDF5 1.10.x.
-	_, isBytes := data[0].Data.([]byte)
-	_, isString := data[0].Data.(string)
-	if isBytes || isString {
-		return createFixedBytesCompoundType()
-	}
-
-	var dtype *hdf5.Datatype
-
-	// Find size of DataType
-	t := reflect.TypeOf(HDF5WrapperMessage{})
-	sz := int(t.Size())
-
-	// Since our HDF5WrapperMessageData type is a struct, we want to add fields (=> Compound Type)
-	cdt, err := hdf5.NewCompoundType(sz)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create Message field
-	data_field_dt, err := hdf5.NewDataTypeFromType(reflect.TypeOf(data[0].Data))
-	if err != nil {
-		return nil, err
-	}
-	err = cdt.Insert("Data", 0, data_field_dt)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create Timestamp field
-	timestamp_field_dt, err := hdf5.NewDataTypeFromType(reflect.TypeFor[float64]())
-	if err != nil {
-		return nil, err
-	}
-	err = cdt.Insert("Timestamp", 16, timestamp_field_dt)
-	if err != nil {
-		return nil, err
-	}
-	dtype = &cdt.Datatype
-	return dtype, nil
-}
-
-// createFixedBytesCompoundType builds a compound HDF5 type matching
-// HDF5FixedBytesMessage: a fixed-length byte array field + a float64 timestamp.
-func createFixedBytesCompoundType() (*hdf5.Datatype, error) {
-	t := reflect.TypeOf(HDF5FixedBytesMessage{})
-	cdt, err := hdf5.NewCompoundType(int(t.Size()))
-	if err != nil {
-		return nil, err
-	}
-
-	// Fixed-length byte array field
-	elemType, err := hdf5.NewDataTypeFromType(reflect.TypeFor[uint8]())
-	if err != nil {
-		return nil, err
-	}
-	arrayType, err := hdf5.NewArrayType(elemType, []int{MaxFixedBytesLen})
-	if err != nil {
-		return nil, err
-	}
-	if err := cdt.Insert("Data", 0, &arrayType.Datatype); err != nil {
-		return nil, err
-	}
-
-	// Timestamp field
-	tsType, err := hdf5.NewDataTypeFromType(reflect.TypeFor[float64]())
-	if err != nil {
-		return nil, err
-	}
-	if err := cdt.Insert("Timestamp", MaxFixedBytesLen, tsType); err != nil {
-		return nil, err
-	}
-
-	return &cdt.Datatype, nil
-}
 func (writer *HDF5Writer) Close() error {
 	err := writer.rootGroup.Close()
 	if err != nil {

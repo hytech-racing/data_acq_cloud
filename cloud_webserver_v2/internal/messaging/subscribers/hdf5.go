@@ -110,15 +110,26 @@ func (w *RawHDF5Writer) processSignalValue(topic, signalName, signalPath string,
 		return
 	default: // Non-dynamic message
 		if w.allSignalData[topic][signalName] == nil {
-			w.allSignalData[topic][signalName] = make([]*utils.HDF5WrapperMessage, 0)
+			w.allSignalData[topic][signalName] = utils.NewHDF5Column(value)
 		}
 
-		valueRawM := &utils.HDF5WrapperMessage{
-			Data:      value,
-			Timestamp: (logTime - *w.firstTime),
-		}
-		w.allSignalData[topic][signalName] = append(w.allSignalData[topic][signalName].([]*utils.HDF5WrapperMessage), valueRawM)
-		w.maxSignalLength = max(w.maxSignalLength, len(w.allSignalData[topic][signalName].([]*utils.HDF5WrapperMessage)))
+		column := w.allSignalData[topic][signalName].(*utils.HDF5Column)
+		column.Append(value, logTime-*w.firstTime)
+		w.maxSignalLength = max(w.maxSignalLength, column.Len())
+	}
+}
+
+// appendDownsampled adds value to the signal column at givenMap[signalName],
+// unless it is less than 5ms after the last value in that column
+func (w *RawHDF5Writer) appendDownsampled(givenMap map[string]interface{}, signalName string, value interface{}, logTime float64) {
+	if _, ok := givenMap[signalName]; !ok {
+		givenMap[signalName] = utils.NewHDF5Column(value)
+	}
+	column := givenMap[signalName].(*utils.HDF5Column)
+
+	if column.Len() == 0 || column.LastTimestamp()+0.005 <= (logTime-*w.firstTime) {
+		column.Append(value, logTime-*w.firstTime)
+		w.maxSignalLength = max(w.maxSignalLength, column.Len())
 	}
 }
 
@@ -130,19 +141,7 @@ func (w *RawHDF5Writer) addJSONValues(decodedValue map[string]interface{}, given
 	for rawSignalName, value := range decodedValue {
 		signalName := strings.ReplaceAll(rawSignalName, "/", "_")
 		baseSignalPath += "." + signalName
-		if _, ok := givenMap[signalName]; !ok {
-			givenMap[signalName] = make([]*utils.HDF5WrapperMessage, 0)
-		}
-		givenMapFieldLength := len(givenMap[signalName].([]*utils.HDF5WrapperMessage))
-
-		if givenMapFieldLength == 0 || givenMap[signalName].([]*utils.HDF5WrapperMessage)[givenMapFieldLength-1].Timestamp+0.005 <= (logTime-*w.firstTime) {
-			valueRawM := &utils.HDF5WrapperMessage{
-				Data:      value,
-				Timestamp: (logTime - *w.firstTime),
-			}
-			givenMap[signalName] = append(givenMap[signalName].([]*utils.HDF5WrapperMessage), valueRawM)
-			w.maxSignalLength = max(w.maxSignalLength, len(givenMap[signalName].([]*utils.HDF5WrapperMessage)))
-		}
+		w.appendDownsampled(givenMap, signalName, value, logTime)
 		baseSignalPath = signalPath
 	}
 }
@@ -174,20 +173,7 @@ func (w *RawHDF5Writer) addNondynamicSliceValues(fieldName string, decodedValue 
 		baseSignalPath += "." + repeatedFieldName
 		repeatedValue := decodedValue.([]interface{})[i]
 
-		if _, ok := givenMap[repeatedFieldName]; !ok {
-			givenMap[repeatedFieldName] = make([]*utils.HDF5WrapperMessage, 0)
-		}
-		givenMapFieldLength := len(givenMap[repeatedFieldName].([]*utils.HDF5WrapperMessage))
-
-		if givenMapFieldLength == 0 || givenMap[repeatedFieldName].([]*utils.HDF5WrapperMessage)[givenMapFieldLength-1].Timestamp+0.005 <= (logTime-*w.firstTime) {
-			valueRawM := &utils.HDF5WrapperMessage{
-				Data:      repeatedValue,
-				Timestamp: (logTime - *w.firstTime),
-			}
-			givenMap[repeatedFieldName] = append(givenMap[repeatedFieldName].([]*utils.HDF5WrapperMessage), valueRawM)
-
-			w.maxSignalLength = max(w.maxSignalLength, len(givenMap[repeatedFieldName].([]*utils.HDF5WrapperMessage)))
-		}
+		w.appendDownsampled(givenMap, repeatedFieldName, repeatedValue, logTime)
 	}
 }
 
@@ -255,19 +241,7 @@ func (w *RawHDF5Writer) addNestedValues(signalPath string, nestedMap map[string]
 		}
 
 		// Non-Dynamic message case
-		if _, ok := nestedMap[fieldName]; !ok {
-			nestedMap[fieldName] = make([]*utils.HDF5WrapperMessage, 0)
-		}
-		nestedMapFieldLength := len(nestedMap[fieldName].([]*utils.HDF5WrapperMessage))
-
-		if nestedMapFieldLength == 0 || nestedMap[fieldName].([]*utils.HDF5WrapperMessage)[nestedMapFieldLength-1].Timestamp+0.005 <= (logTime-*w.firstTime) {
-			valueRawM := &utils.HDF5WrapperMessage{
-				Data:      decodedValue,
-				Timestamp: (logTime - *w.firstTime),
-			}
-			nestedMap[fieldName] = append(nestedMap[fieldName].([]*utils.HDF5WrapperMessage), valueRawM)
-			w.maxSignalLength = max(w.maxSignalLength, len(nestedMap[fieldName].([]*utils.HDF5WrapperMessage)))
-		}
+		w.appendDownsampled(nestedMap, fieldName, decodedValue, logTime)
 
 		baseSignalPath = signalPath
 	}

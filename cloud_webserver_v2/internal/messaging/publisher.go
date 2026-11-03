@@ -70,7 +70,7 @@ func (p *Publisher) Subscribe(id int, subscriberName string, subFunc SubscriberF
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	channel := make(chan SubscribedMessage)
+	channel := make(chan SubscribedMessage, 1024)
 	p.subscribers[subscriberName] = channel
 
 	p.wg.Add(1)
