@@ -10,16 +10,18 @@ import (
 
 // FileModel contains the information for a file (object) stored on S3
 type FileModel struct {
-	AwsBucket string `bson:"aws_bucket"`
-	FilePath  string `bson:"file_path"`
-	FileName  string `bson:"file_name"`
-	FileHash  string `bson:"file_hash,omitempty"` // SHA-256 hash
+	AwsBucket       string   `bson:"aws_bucket"`
+	FilePath        string   `bson:"file_path"`
+	FileName        string   `bson:"file_name"`
+	FileHash        string   `bson:"file_hash,omitempty"` // SHA-256 hash
+	DurationSeconds *float64 `bson:"duration_seconds,omitempty"`
 }
 
 // FileModel contains the information for a serialized response of a file (object) stored on S3
 type FileModelResponse struct {
-	SignedUrl string `json:"signed_url"`
-	FileName  string `json:"file_name"`
+	SignedUrl       string   `json:"signed_url"`
+	FileName        string   `json:"file_name"`
+	DurationSeconds *float64 `json:"duration_seconds,omitempty"`
 }
 
 type VehicleRunModel struct {
@@ -89,8 +91,9 @@ func getFileModelResponse(ctx context.Context, s3Repo *s3.S3Repository, files []
 	for idx, file := range files {
 		signedUrl := s3Repo.GetSignedUrl(ctx, s3Bucket, file.FilePath)
 		outFiles[idx] = FileModelResponse{
-			SignedUrl: signedUrl,
-			FileName:  file.FileName,
+			SignedUrl:       signedUrl,
+			FileName:        file.FileName,
+			DurationSeconds: file.DurationSeconds,
 		}
 	}
 
