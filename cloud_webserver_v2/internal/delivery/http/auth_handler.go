@@ -16,7 +16,7 @@ import (
 	"github.com/go-chi/render"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/auth"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
-	"github.com/hytech-racing/cloud-webserver-v2/internal/database/usecase"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/database/repository"
 )
 
 const (
@@ -46,15 +46,6 @@ type usernameRequest struct {
 	Username string `json:"username"`
 }
 
-// NewAuthHandler registers the Georgia Tech SSO routes:
-//
-//	GET /auth/login    -> redirect to the OIDC authorization endpoint
-//	GET /auth/callback -> exchange the returned code and start a session
-//	GET /auth/logout   -> destroy the local session
-//	GET /auth/me       -> return the currently authenticated user
-//
-// Only usernames present in the allowlist may start a session; everyone else is sent
-// back to the frontend with a user_not_allowed error.
 func NewAuthHandler(ctx context.Context, r *chi.Mux, config auth.AuthConfig, sessions auth.SessionStore, dbClient *database.DatabaseClient) (*AuthHandler, error) {
 	oidcClient, err := auth.NewOIDCClient(
 		ctx,
@@ -90,8 +81,6 @@ func (h *AuthHandler) RegisterNonCallbackEndpoints() {
 	})
 }
 
-// Login redirects the browser to the provider. The redirect URL is the callback
-// registered with Georgia Tech as GT_OIDC_REDIRECT_URL.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	state, err := auth.NewRandomToken()
 	if err != nil {
@@ -112,9 +101,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, h.oidc.AuthCodeURL(state, nonce, verifier), http.StatusFound)
 }
 
-// Callback receives the one-time authorization code, exchanges it for a verified id
-// token, and on success starts a session and returns the user to the frontend. A session
-// is only started when the username released by the provider is present in the allowlist.
 func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) *HandlerError {
 	query := r.URL.Query()
 
@@ -188,7 +174,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		h.sessions.Delete(cookie.Value)
 	}
 
-	http.SetCookie(w, h.expiredSessionCookie())
+	http.SetCookie(w, h.sessionCookie(nil))
 	http.Redirect(w, r, h.config.FrontendURL, http.StatusFound)
 }
 
@@ -228,7 +214,7 @@ func (h *AuthHandler) RegisterUsername(w http.ResponseWriter, r *http.Request) *
 	}
 
 	err = h.dbClient.AllowedUsernameUseCase().AddUsername(r.Context(), request.Username)
-	if errors.Is(err, usecase.ErrUsernameAlreadyExists) {
+	if errors.Is(err, repository.ErrUsernameAlreadyExists) {
 		return NewHandlerError("user is already an admin", http.StatusBadRequest)
 	}
 	if err != nil {
@@ -334,37 +320,23 @@ func (h *AuthHandler) loginCredentials(r *http.Request, state string) (nonce, ve
 }
 
 func (h *AuthHandler) sessionCookie(session *auth.Session) *http.Cookie {
+	value := ""
+	sameSite := http.SameSiteLaxMode
+	if session != nil {
+		value = session.ID
+	}
+	if h.config.CookieSecure {
+		sameSite = http.SameSiteNoneMode
+	}
 	return &http.Cookie{
 		Name:     h.config.CookieName,
-		Value:    session.ID,
+		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   h.config.CookieSecure,
-		SameSite: h.sameSite(),
+		SameSite: sameSite,
 		Expires:  session.ExpiresAt,
 	}
-}
-
-func (h *AuthHandler) expiredSessionCookie() *http.Cookie {
-	return &http.Cookie{
-		Name:     h.config.CookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   h.config.CookieSecure,
-		SameSite: h.sameSite(),
-		MaxAge:   -1,
-	}
-}
-
-// sameSite returns None for secure cookies so the cookie still works when the
-// frontend is served from a different site (for example github.io), and Lax over
-// plain HTTP where browsers reject SameSite=None cookies.
-func (h *AuthHandler) sameSite() http.SameSite {
-	if h.config.CookieSecure {
-		return http.SameSiteNoneMode
-	}
-	return http.SameSiteLaxMode
 }
 
 // errorRedirect sends the user back to the frontend with an error code it can display.

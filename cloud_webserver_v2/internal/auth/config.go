@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -101,23 +102,9 @@ func parseScopes(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		raw = DefaultOIDCScopes
 	}
-
-	seen := make(map[string]bool)
-	scopes := make([]string, 0, 4)
-	for _, scope := range strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ' ' || r == ',' || r == '\t' || r == '\n'
-	}) {
-		scope = strings.TrimSpace(scope)
-		if scope == "" || seen[scope] {
-			continue
-		}
-		seen[scope] = true
-		scopes = append(scopes, scope)
-	}
-
-	if !seen["openid"] {
+	scopes := strings.Fields(raw)
+	if !slices.Contains(scopes, "openid") {
 		scopes = append([]string{"openid"}, scopes...)
 	}
-
 	return scopes
 }

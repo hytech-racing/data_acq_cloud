@@ -152,10 +152,11 @@ func userFromIDToken(token *oidc.IDToken) (*User, error) {
 // preferred_username, so the local part is used when one is present.
 func usernameFromClaims(claims map[string]any, subject string) string {
 	for _, name := range []string{"username", "preferred_username", "email"} {
-		candidate := stringClaim(claims, name)
-		if candidate == "" {
-			continue
+		candidate, ok := claims[name].(string)
+		if !ok {
+			continue;
 		}
+		candidate = strings.TrimSpace(candidate)
 		if at := strings.Index(candidate, "@"); at > 0 {
 			candidate = candidate[:at]
 		}
@@ -163,14 +164,6 @@ func usernameFromClaims(claims map[string]any, subject string) string {
 	}
 
 	return strings.TrimSpace(subject)
-}
-
-func stringClaim(claims map[string]any, name string) string {
-	value, ok := claims[name].(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(value)
 }
 
 // attributesFromClaims flattens the scalar claims so the frontend can show them.
