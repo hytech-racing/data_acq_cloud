@@ -79,7 +79,7 @@ func (s *S3Repository) GetSignedUrl(ctx context.Context, bucket string, objectPa
 		Bucket: aws.String(bucket),
 		Key:    aws.String(objectPath),
 	}, func(opts *s3.PresignOptions) {
-		opts.Expires = time.Duration(10 * int64(time.Minute))
+		opts.Expires = time.Duration(24 * int64(time.Hour))
 	})
 	if err != nil {
 		log.Fatalf("Couldn't get a presigned request to get %v:%v: %v", bucket, objectPath, err)
