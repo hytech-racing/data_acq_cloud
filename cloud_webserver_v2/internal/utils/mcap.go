@@ -115,13 +115,15 @@ func (m *McapUtils) DecodeProtobuf(schema *mcap.Schema, message *mcap.Message) (
 		return nil, fmt.Errorf("failed to parse protobuf message using included schema: %v", err)
 	}
 
+	fields := dynMsg.GetKnownFields()
+
+	// Sized up front so the map doesn't grow and rehash while we fill it
 	decodedMessage := DecodedMessage{
 		Topic:   schema.Name,
-		Data:    make(map[string]interface{}),
+		Data:    make(map[string]interface{}, len(fields)),
 		LogTime: message.LogTime,
 	}
 
-	fields := dynMsg.GetKnownFields()
 	for _, field := range fields {
 		value := dynMsg.GetField(field)
 		decodedMessage.Data[field.GetName()] = value
