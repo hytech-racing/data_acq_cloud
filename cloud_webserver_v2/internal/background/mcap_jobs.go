@@ -50,6 +50,11 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		return fmt.Errorf("failed to create file hash for %v: %w", mcapFileName, err)
 	}
 
+	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(mcapFileS3Reader, 0, job.Size))
+	if err != nil {
+		log.Printf("could not read MCAP duration for %v: %v", mcapFileName, err)
+	}
+
 	// The vehicle run is created upfront with only the MCAP file attached to it. Converted
 	// files (the HDF5 file and its plots) are attached later, but only when the conversion
 	// succeeds. This makes sure an uploaded MCAP is always returned by the fetch endpoints.
@@ -58,10 +63,11 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		CarModel: "HT09",
 		McapFiles: []models.FileModel{
 			{
-				AwsBucket: fp.s3Repository.Bucket(),
-				FilePath:  mcapObjectFilePath,
-				FileName:  mcapFileName,
-				FileHash:  fileHash,
+				AwsBucket:       fp.s3Repository.Bucket(),
+				FilePath:        mcapObjectFilePath,
+				FileName:        mcapFileName,
+				FileHash:        fileHash,
+				DurationSeconds: durationSeconds,
 			},
 		},
 		Id: recordId,
@@ -287,7 +293,8 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 	}
 
 	log.Printf("Starting subsribers for job: %s", job.ID)
-	go func() {
+	readErr := func() error {
+		defer publisher.CloseAllSubscribers()
 		// Some subscribers may need specfic information before being able to perform their tasks. For example, (CreateInterpolatedMatlabFile)
 		// Because of this, they will need their first message to set paramaters. This is what initMessage is for.
 		initMessage := make(map[string]interface{})
@@ -306,8 +313,7 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 			}
 
 			if err != nil {
-				log.Printf("error reading mcap message: %v", err)
-				return
+				return fmt.Errorf("error reading mcap message: %w", err)
 			}
 
 			if schema == nil {
@@ -324,13 +330,16 @@ func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *Fi
 			publisher.Publish(ctx, decodedMessage)
 		}
 
-		// Need to make sure to close the subscribers or our code will hang and wait forever
-		publisher.CloseAllSubscribers()
+		return nil
 	}()
 
 	publisher.WaitForClosure()
 
 	log.Printf("All subscribers finished for job %v", job.ID)
+
+	if readErr != nil {
+		return nil, readErr
+	}
 
 	return publisher.Results(), nil
 }
