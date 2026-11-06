@@ -15,9 +15,10 @@ import (
 // Whoever uses this struct to establish a connection to the database is responsible
 // for calling the Disconnect() method to gracefully disconnect from the database
 type DatabaseClient struct {
-	databaseClient       *mongo.Client
-	vehicleRunRepository repository.VehicleRunRepository
-	carMetricsRepository repository.CarMetricsRepository
+	databaseClient            *mongo.Client
+	vehicleRunRepository      repository.VehicleRunRepository
+	carMetricsRepository      repository.CarMetricsRepository
+	allowedUsernameRepository repository.AllowedUsernameRepository
 }
 
 const VehicleDataDatabase = "vehicle_data_db"
@@ -55,6 +56,12 @@ func NewDatabaseClient(ctx context.Context, uri string) (*DatabaseClient, error)
 	}
 	databaseClient.carMetricsRepository = carMetricsRepository
 
+	allowedUsernameRepository, err := repository.NewMongoAllowedUsernameRepository(ctx, client, vehicleDataDatabase)
+	if err != nil {
+		return nil, fmt.Errorf("could not create allowedUsernameRepository: %v", err)
+	}
+	databaseClient.allowedUsernameRepository = allowedUsernameRepository
+
 	return databaseClient, nil
 }
 
@@ -64,6 +71,10 @@ func (client *DatabaseClient) VehicleRunUseCase() *usecase.VehicleRunUseCase {
 
 func (client *DatabaseClient) CarMetricsUseCase() *usecase.CarMetricsUseCase {
 	return usecase.NewCarMetricsUseCase(client.carMetricsRepository)
+}
+
+func (client *DatabaseClient) AllowedUsernameUseCase() *usecase.AllowedUsernameUseCase {
+	return usecase.NewAllowedUsernameUseCase(client.allowedUsernameRepository)
 }
 
 func (client *DatabaseClient) Disonnect(ctx context.Context) error {

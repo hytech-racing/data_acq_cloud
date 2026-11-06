@@ -5,13 +5,13 @@ services:
       - run_metadata:/data/run_metadata
       - ./htmls:/app/files
       - ./logs:/app/logs
-      - ./config:/app/config
     build:
       context: .
     env_file: 
       - .env
     ports:
       - "8080:8080"
+      - "3000:3000"
     restart: unless-stopped
 
 volumes:
