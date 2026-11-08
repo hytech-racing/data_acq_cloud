@@ -115,6 +115,11 @@ type FileJob struct {
 	// FileDir is the directory of where the file lives
 	FileDir string
 
+	// SourceS3Key is set when the file was uploaded directly to S3 by the client.
+	// The processor downloads the object to FilePath before running the job, and
+	// skips uploading it again because it is already in the bucket.
+	SourceS3Key string
+
 	// Size is the size of the file in bytes
 	Size int64
 
@@ -130,15 +135,15 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 	}
 
 	fp := &FileProcessor{
-		directory:             uploadDir,
-		fileQueueChan:         make(chan *FileJob, 100),
-		stopChan:              make(chan bool),
-		processingWg:          sync.WaitGroup{},
-		mu:                    sync.RWMutex{},
-		maxTotalSize:          maxTotalSize,
-		dbClient:              dbClient,
-		s3Repository:          s3Repository,
-		mcapStatusBroadcaster: NewMcapStatusBroadcaster(),
+		directory:              uploadDir,
+		fileQueueChan:          make(chan *FileJob, 100),
+		stopChan:               make(chan bool),
+		processingWg:           sync.WaitGroup{},
+		mu:                     sync.RWMutex{},
+		maxTotalSize:           maxTotalSize,
+		dbClient:               dbClient,
+		s3Repository:           s3Repository,
+		mcapStatusBroadcaster:  NewMcapStatusBroadcaster(),
 		pendingMcapFileUploads: make(map[string]struct{}),
 	}
 
@@ -186,7 +191,7 @@ func (fp *FileProcessor) EnqueueFile(fileHeader *multipart.FileHeader, processor
 		FileDir:   fp.directory,
 		Date:      time.Now(), // TODO: Change to date gotten from MCAP
 		Processor: processor,
-		Hidden: hidden,
+		Hidden:    hidden,
 	}
 
 	dst, err := os.Create(job.FilePath)
@@ -205,6 +210,84 @@ func (fp *FileProcessor) EnqueueFile(fileHeader *multipart.FileHeader, processor
 	fp.fileQueueChan <- job
 
 	return job, nil
+}
+
+// EnqueueS3Object creates a FileJob for an object the client uploaded directly to S3.
+// The object is downloaded into the upload directory by the queue worker, so the HTTP
+// request that registers the upload returns immediately no matter how large the file is.
+func (fp *FileProcessor) EnqueueS3Object(objectKey, filename string, size int64, processor FileJobProcessor, hidden bool) (*FileJob, error) {
+	if !fp.HasCapacityFor(size) {
+		return nil, fmt.Errorf("upload would exceed the server's file size limit")
+	}
+
+	id := fmt.Sprintf("job_%d", time.Now().UnixNano())
+	job := &FileJob{
+		ID:          id,
+		Filename:    filename,
+		Size:        size,
+		Status:      StatusPending,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+		FilePath:    filepath.Join(fp.directory, fmt.Sprintf("%s_%s", id, filename)),
+		FileDir:     fp.directory,
+		SourceS3Key: objectKey,
+		Date:        time.Now(), // TODO: Change to date gotten from MCAP
+		Processor:   processor,
+		Hidden:      hidden,
+	}
+
+	// The downloaded file will occupy local storage until the job finishes, so count
+	// it now. finishJob reverses this once the file has been consumed or removed.
+	fp.TotalSize.Add(job.Size)
+	fp.MiddlewareEstimatedSize.Add(job.Size)
+
+	log.Printf("job put in queue for direct upload %v, %v", objectKey, job.ID)
+	fp.fileQueueChan <- job
+
+	return job, nil
+}
+
+// HasCapacityFor reports whether the file processor can stage another size bytes. It
+// looks at both the actual size of the files in the upload directory and the
+// middleware's estimate, which includes uploads that are still in flight.
+func (fp *FileProcessor) HasCapacityFor(size int64) bool {
+	currentSize := fp.TotalSize.Load()
+	if estimated := fp.MiddlewareEstimatedSize.Load(); estimated > currentSize {
+		currentSize = estimated
+	}
+	return currentSize+size <= fp.maxTotalSize
+}
+
+// stageS3Object streams a directly uploaded object from S3 into the upload directory so
+// the rest of the pipeline can work with a local file.
+func (fp *FileProcessor) stageS3Object(ctx context.Context, job *FileJob) error {
+	reader, err := fp.s3Repository.GetObjectReader(ctx, job.SourceS3Key)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	file, err := os.Create(job.FilePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if _, err := io.Copy(file, reader); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// finishJob removes the job's staged file and releases the space it occupied. It runs
+// exactly once per processed job, whether the job succeeded or failed.
+func (fp *FileProcessor) finishJob(job *FileJob) {
+	if err := os.Remove(job.FilePath); err != nil && !os.IsNotExist(err) {
+		log.Printf("failed to remove processed file %v: %v", job.FilePath, err)
+	}
+	fp.TotalSize.Add(-job.Size)
+	fp.MiddlewareEstimatedSize.Add(-job.Size)
 }
 
 // jobQueueListener creates a listener which continuously polls the channels to check if there
@@ -255,8 +338,8 @@ func (fp *FileProcessor) broadcastFileUploadError(job *FileJob, error error) {
 	delete(fp.pendingMcapFileUploads, job.Filename)
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
 		Status: StatusFailed,
-		Name: job.Filename,
-		Error: error.Error(),
+		Name:   job.Filename,
+		Error:  error.Error(),
 	})
 }
 
@@ -274,7 +357,7 @@ func (fp *FileProcessor) broadcastFileUploadEnd(job *FileJob, ctx context.Contex
 	})
 }
 
-func (fp *FileProcessor) GetPendingMcapUploads() [] string {
+func (fp *FileProcessor) GetPendingMcapUploads() []string {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
 	fileUploads := make([]string, 0, len(fp.pendingMcapFileUploads))
