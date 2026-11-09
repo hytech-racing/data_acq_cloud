@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging"
@@ -26,29 +27,21 @@ type PostProcessMCAPUploadJob struct{}
 func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJob) error {
 	ctx := context.Background()
 	fp.broadcastFileUploadStart(job)
+	// The staged file and the space it reserves are released on every exit path, not
+	// only the successful one, so a failed conversion cannot exhaust the queue budget.
+	defer fp.finishJob(job)
 
-	// Uploading MCAP file to S3 before any conversion is attempted. This guarantees the
-	// original MCAP is preserved even if converting it into an HDF5 file fails.
-	mcapFileS3Reader, err := os.Open(job.FilePath)
+	// The staged download also computes the file hash before any conversion runs, so
+	// runs that only ever end up with an MCAP file stay findable through the
+	// /mcaps/status hash lookup.
+	fileHash, err := fp.stageS3Object(ctx, job)
 	if err != nil {
-		return fmt.Errorf("could not open mcap file %v: %w", job.FilePath, err)
+		return fmt.Errorf("failed to download directly uploaded mcap %v: %w", job.Filename, err)
 	}
-	defer mcapFileS3Reader.Close()
 
 	recordId := primitive.NewObjectID()
 	mcapFileName := job.Filename
-	mcapObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
-	if err := fp.s3Repository.PutObject(ctx, mcapFileS3Reader, mcapObjectFilePath); err != nil {
-		return fmt.Errorf("failed to upload mcap file %v to s3: %w", mcapFileName, err)
-	}
-	log.Printf("uploaded mcap file %v to s3", mcapFileName)
-
-	// The file hash is created before any conversion happens so that runs which only ever
-	// end up with an MCAP file can still be found through the /mcaps/status hash lookup.
-	fileHash, err := utils.CreateFileHash(mcapFileS3Reader)
-	if err != nil {
-		return fmt.Errorf("failed to create file hash for %v: %w", mcapFileName, err)
-	}
+	mcapObjectFilePath := job.SourceS3Key
 
 	// The vehicle run is created upfront with only the MCAP file attached to it. Converted
 	// files (the HDF5 file and its plots) are attached later, but only when the conversion
@@ -64,7 +57,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 				FileHash:  fileHash,
 			},
 		},
-		Id: recordId,
+		Id:     recordId,
 		Hidden: job.Hidden,
 	}
 
@@ -136,11 +129,27 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 
 	// After successful processing, if we are in PRODUCTION, save the mcap and h5 file to our docker volume
 	if os.Getenv("ENV") == "PRODUCTION" {
-		// Create the directory structure for the files
-		os.MkdirAll(fmt.Sprintf("/data/run_metadata/%s", recordId.Hex()), os.ModeDir)
+		const runMetadataDir = "/data/run_metadata"
+
+		// Directly uploaded MCAPs keep the S3 key the client wrote to, which has more
+		// path segments than the record ID used for generated files. Create the parent
+		// of each destination rather than assuming one layout.
+		hdf5VolumePath := filepath.Join(runMetadataDir, matObjectFilePath)
+		mcapVolumePath := filepath.Join(runMetadataDir, mcapObjectFilePath)
+		if err := os.MkdirAll(filepath.Dir(hdf5VolumePath), 0o755); err != nil {
+			return fmt.Errorf("failed to create the run metadata directory: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Dir(mcapVolumePath), 0o755); err != nil {
+			return fmt.Errorf("failed to create the run metadata directory: %w", err)
+		}
+
+		// The HDF5 upload consumed the reader, so rewind before copying it.
+		if _, err := hdf5File.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("failed to rewind hdf5 file for the volume: %w", err)
+		}
 
 		// Create the HDF5 file in the volume
-		destHdf5File, err := os.Create(fmt.Sprintf("/data/run_metadata/%s", matObjectFilePath))
+		destHdf5File, err := os.Create(hdf5VolumePath)
 		if err != nil {
 			return fmt.Errorf("error to create h5 file in volume %w", err)
 		}
@@ -152,15 +161,21 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 			return fmt.Errorf("failed to copy h5 file over to volume: %w", err)
 		}
 
+		volumeMcapFile, err := os.Open(job.FilePath)
+		if err != nil {
+			return fmt.Errorf("failed to open mcap file for the volume: %w", err)
+		}
+		defer volumeMcapFile.Close()
+
 		// Create the MCAP file in the volume
-		destMcapFile, err := os.Create(fmt.Sprintf("/data/run_metadata/%s", mcapObjectFilePath))
+		destMcapFile, err := os.Create(mcapVolumePath)
 		if err != nil {
 			return fmt.Errorf("error to create mcap file in volume %w", err)
 		}
 		defer destMcapFile.Close()
 
 		// Copy the MCAP file contents over to the file in the volume
-		_, err = io.Copy(destMcapFile, mcapFileS3Reader)
+		_, err = io.Copy(destMcapFile, volumeMcapFile)
 		if err != nil {
 			log.Printf("failed to copy mcap file over to volume: %v", err)
 		}
@@ -203,14 +218,6 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		return fmt.Errorf("failed to save vehicle run for %v: %w", job.Filename, err)
 	}
 
-	// Cleanup the locally staged mcap file now that it has been uploaded to S3
-	if err := os.Remove(job.FilePath); err != nil {
-		log.Printf("failed to remove processed mcap file %v: %v", job.FilePath, err)
-	}
-
-	// Update the file processor's total size and estimated size after removing
-	fp.TotalSize.Add(-job.Size)
-	fp.MiddlewareEstimatedSize.Add(-job.Size)
 	fp.broadcastFileUploadEnd(job, ctx, vehicleRunModel)
 
 	log.Printf("Completed job %v", job.ID)
@@ -218,10 +225,10 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 }
 
 func (p *PostProcessMCAPUploadJob) saveMcapOnlyVehicleRun(
-	fp *FileProcessor, 
-	ctx context.Context, 
-	job *FileJob, 
-	vehicleRunModel *models.VehicleRunModel, 
+	fp *FileProcessor,
+	ctx context.Context,
+	job *FileJob,
+	vehicleRunModel *models.VehicleRunModel,
 	conversionErr error,
 ) error {
 	if _, err := fp.dbClient.VehicleRunUseCase().CreateVehicleRun(ctx, vehicleRunModel); err != nil {
@@ -232,14 +239,6 @@ func (p *PostProcessMCAPUploadJob) saveMcapOnlyVehicleRun(
 	if err := os.Remove(generatedHdf5Location); err != nil && !os.IsNotExist(err) {
 		log.Printf("failed to remove generated hdf5 file %v: %v", generatedHdf5Location, err)
 	}
-	
-	// Cleanup the locally staged mcap file now that it has been uploaded to S3
-	if err := os.Remove(job.FilePath); err != nil {
-		log.Printf("failed to remove processed mcap file %v: %v", job.FilePath, err)
-	}
-
-	fp.TotalSize.Add(-job.Size)
-	fp.MiddlewareEstimatedSize.Add(-job.Size)
 
 	log.Printf("saved vehicle run %v with only the mcap file: %v", vehicleRunModel.Id.Hex(), conversionErr)
 
