@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
+	transfermanagertypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -228,6 +229,28 @@ func (s *S3Repository) GetObjectReader(ctx context.Context, objectKey string) (i
 	}
 
 	return output.Body, nil
+}
+
+// DownloadObject stages an object into writer with the transfer manager's concurrent
+// downloader and returns the number of bytes written.
+func (s *S3Repository) DownloadObject(ctx context.Context, objectKey string, writer io.WriterAt) (int64, error) {
+	out, err := s.s3_session.transferClient.DownloadObject(ctx, &transfermanager.DownloadObjectInput{
+		Bucket:   aws.String(s.s3_session.bucket),
+		Key:      aws.String(objectKey),
+		WriterAt: writer,
+	}, func(o *transfermanager.Options) {
+		// Ranged parts make every object concurrent, not only multipart uploads.
+		o.GetObjectType = transfermanagertypes.GetObjectRanges
+	})
+	if err != nil {
+		var noSuchKey *types.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			return 0, ErrObjectNotFound
+		}
+		return 0, fmt.Errorf("couldn't download %v:%v: %w", s.s3_session.bucket, objectKey, err)
+	}
+
+	return aws.ToInt64(out.ContentLength), nil
 }
 
 // DeleteObject deletes an object from S3 located at the bucket and object path

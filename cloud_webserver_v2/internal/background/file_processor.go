@@ -3,7 +3,6 @@ package background
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
+	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 )
@@ -212,26 +212,32 @@ func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 	return currentSize+size <= fp.maxTotalSize
 }
 
-// stageS3Object streams a directly uploaded object from S3 into the upload directory so
-// the rest of the pipeline can work with a local file.
-func (fp *FileProcessor) stageS3Object(ctx context.Context, job *FileJob) error {
-	reader, err := fp.s3Repository.GetObjectReader(ctx, job.SourceS3Key)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-
+// stageS3Object downloads a directly uploaded object from S3 into the upload directory
+// and returns the staged file's hash. os.Create returns the single read/write handle
+// used by both the concurrent download and the later hash read.
+func (fp *FileProcessor) stageS3Object(ctx context.Context, job *FileJob) (string, error) {
 	file, err := os.Create(job.FilePath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer file.Close()
 
-	if _, err := io.Copy(file, reader); err != nil {
-		return err
+	downloaded, err := fp.s3Repository.DownloadObject(ctx, job.SourceS3Key, file)
+	if err != nil {
+		return "", err
 	}
 
-	return nil
+	return hashStagedFile(file, downloaded, job.Size)
+}
+
+// hashStagedFile verifies the staged file is the size the upload reported and returns
+// its SHA-256 hash.
+func hashStagedFile(file *os.File, downloaded, expected int64) (string, error) {
+	if downloaded != expected {
+		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, expected)
+	}
+
+	return utils.CreateFileHash(file)
 }
 
 // finishJob removes the job's staged file and releases the space it occupied. It runs
