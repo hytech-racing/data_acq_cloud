@@ -494,10 +494,7 @@ func (h *uploadHandler) handleJSON(w http.ResponseWriter, r *http.Request, targe
 	if handlerErr != nil {
 		return handlerErr
 	}
-	render.JSON(w, r, map[string]any{
-		"message": nil,
-		"data":    data,
-	})
+	render.JSON(w, r, data)
 	return nil
 }
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mime/multipart"
 	"os"
 	"path/filepath"
 	"sync"
@@ -115,9 +114,9 @@ type FileJob struct {
 	// FileDir is the directory of where the file lives
 	FileDir string
 
-	// SourceS3Key is set when the file was uploaded directly to S3 by the client.
-	// The processor downloads the object to FilePath before running the job, and
-	// skips uploading it again because it is already in the bucket.
+	// SourceS3Key is the key the client uploaded the file to. The processor downloads
+	// the object to FilePath before running the job; it is never re-uploaded because
+	// it already lives in the bucket.
 	SourceS3Key string
 
 	// Size is the size of the file in bytes
@@ -165,51 +164,6 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 	go fp.syncTotalSize()
 
 	return fp, nil
-}
-
-// EnqueueFile returns a new FileJob created from a file header and a processor logic function.
-// The returned FileJob is independent of other jobs and contains all the relevent information needed.
-// to perform its action(s).
-// EnqueueFile adds the new FileJob to the current queue of jobs being executed by the FileProcessor.
-// A successful job creation and enqueue will return a FileJob struct instance.
-func (fp *FileProcessor) EnqueueFile(fileHeader *multipart.FileHeader, processor FileJobProcessor, hidden bool) (*FileJob, error) {
-	src, err := fileHeader.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer src.Close()
-
-	id := fmt.Sprintf("job_%d", time.Now().UnixNano())
-	job := &FileJob{
-		ID:        id,
-		Filename:  fileHeader.Filename,
-		Size:      fileHeader.Size,
-		Status:    StatusPending,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		FilePath:  filepath.Join(fp.directory, fmt.Sprintf("%s_%s", id, fileHeader.Filename)),
-		FileDir:   fp.directory,
-		Date:      time.Now(), // TODO: Change to date gotten from MCAP
-		Processor: processor,
-		Hidden:    hidden,
-	}
-
-	dst, err := os.Create(job.FilePath)
-	if err != nil {
-		return nil, err
-	}
-	defer dst.Close()
-
-	if _, err = io.Copy(dst, src); err != nil {
-		os.Remove(job.FilePath)
-		return nil, err
-	}
-
-	fp.TotalSize.Add(job.Size)
-	log.Printf("job put in queue, %v", job.ID)
-	fp.fileQueueChan <- job
-
-	return job, nil
 }
 
 // EnqueueS3Object creates a FileJob for an object the client uploaded directly to S3.

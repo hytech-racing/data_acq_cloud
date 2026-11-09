@@ -31,16 +31,15 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	// only the successful one, so a failed conversion cannot exhaust the queue budget.
 	defer fp.finishJob(job)
 
-	// Files uploaded directly by the client live in S3 first. Download the object so
-	// the rest of the pipeline can work with a local file.
-	if job.SourceS3Key != "" {
-		if err := fp.stageS3Object(ctx, job); err != nil {
-			return fmt.Errorf("failed to download directly uploaded mcap %v: %w", job.Filename, err)
-		}
+	// The client uploads directly to S3, so download the object before the rest of the
+	// pipeline can work with a local file.
+	if err := fp.stageS3Object(ctx, job); err != nil {
+		return fmt.Errorf("failed to download directly uploaded mcap %v: %w", job.Filename, err)
 	}
 
-	// Uploading MCAP file to S3 before any conversion is attempted. This guarantees the
-	// original MCAP is preserved even if converting it into an HDF5 file fails.
+	// The client already uploaded the MCAP straight to S3 before this job was queued,
+	// so it is preserved even if converting it into an HDF5 file fails. The staged copy
+	// is still opened for the hash and the production volume.
 	mcapFileS3Reader, err := os.Open(job.FilePath)
 	if err != nil {
 		return fmt.Errorf("could not open mcap file %v: %w", job.FilePath, err)
@@ -50,16 +49,6 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	recordId := primitive.NewObjectID()
 	mcapFileName := job.Filename
 	mcapObjectFilePath := job.SourceS3Key
-	if mcapObjectFilePath == "" {
-		mcapObjectFilePath = fmt.Sprintf("%s/%s", recordId.Hex(), mcapFileName)
-		if err := fp.s3Repository.PutObject(ctx, mcapFileS3Reader, mcapObjectFilePath); err != nil {
-			return fmt.Errorf("failed to upload mcap file %v to s3: %w", mcapFileName, err)
-		}
-		log.Printf("uploaded mcap file %v to s3", mcapFileName)
-	} else {
-		log.Printf("mcap file %v was already uploaded directly to s3 at %v", mcapFileName, mcapObjectFilePath)
-	}
-
 	// The file hash is created before any conversion happens so that runs which only ever
 	// end up with an MCAP file can still be found through the /mcaps/status hash lookup.
 	fileHash, err := utils.CreateFileHash(mcapFileS3Reader)
