@@ -300,6 +300,7 @@ func (p *PostProcessMCAPUploadJob) publishMCAPMessages(ctx context.Context, job 
 		initMessage["file_name"] = genericFileName
 		initMessage["file_path"] = job.FileDir
 		publisher.Publish(ctx, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage})
+		no_schema_channels := make(map[string]bool)
 
 		for {
 			schema, channel, message, err := message_iterator.NextInto(nil)
@@ -316,7 +317,11 @@ func (p *PostProcessMCAPUploadJob) publishMCAPMessages(ctx context.Context, job 
 			}
 
 			if schema == nil {
-				log.Printf("no schema found for channel ID: %d, channel: %v", message.ChannelID, channel)
+				_, is_repeat_offender := no_schema_channels[channel.Topic]
+				if !is_repeat_offender {
+					no_schema_channels[channel.Topic] = true
+					log.Printf("no schema found for channel ID: %d, channel: %v", message.ChannelID, channel)
+				}
 				continue
 			}
 

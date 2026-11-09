@@ -159,7 +159,7 @@ func PlotTimeVelocity(id int, subscriberName string, ch <-chan SubscribedMessage
 
 			decodedFL := veh_vec_floatDynamicMessage.GetField(fl_Descriptor)
 			decodedFR := veh_vec_floatDynamicMessage.GetField(fr_Descriptor)
-			if decodedFL == nil || decodedFL == nil {
+			if decodedFL == nil || decodedFR == nil {
 				continue
 			}
 
@@ -250,11 +250,11 @@ func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessag
 		if err != nil {
 			log.Printf("could not chunk write hdf5 file: %v", err)
 		}
+	}
 
-		err = hdf5Writer.HDF5Writer.Close()
-		if err != nil {
-			log.Printf("could not close hdf5 file: %v", err)
-		}
+	// Close even when no supported signal was found so the file handle is not leaked.
+	if err := hdf5Writer.HDF5Writer.Close(); err != nil {
+		log.Printf("could not close hdf5 file: %v", err)
 	}
 
 	result := make(map[string]interface{})
