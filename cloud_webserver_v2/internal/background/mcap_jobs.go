@@ -31,30 +31,17 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	// only the successful one, so a failed conversion cannot exhaust the queue budget.
 	defer fp.finishJob(job)
 
-	// The client uploads directly to S3, so download the object before the rest of the
-	// pipeline can work with a local file.
-	if err := fp.stageS3Object(ctx, job); err != nil {
+	// The staged download also computes the file hash before any conversion runs, so
+	// runs that only ever end up with an MCAP file stay findable through the
+	// /mcaps/status hash lookup.
+	fileHash, err := fp.stageS3Object(ctx, job)
+	if err != nil {
 		return fmt.Errorf("failed to download directly uploaded mcap %v: %w", job.Filename, err)
 	}
-
-	// The client already uploaded the MCAP straight to S3 before this job was queued,
-	// so it is preserved even if converting it into an HDF5 file fails. The staged copy
-	// is still opened for the hash and the production volume.
-	mcapFileS3Reader, err := os.Open(job.FilePath)
-	if err != nil {
-		return fmt.Errorf("could not open mcap file %v: %w", job.FilePath, err)
-	}
-	defer mcapFileS3Reader.Close()
 
 	recordId := primitive.NewObjectID()
 	mcapFileName := job.Filename
 	mcapObjectFilePath := job.SourceS3Key
-	// The file hash is created before any conversion happens so that runs which only ever
-	// end up with an MCAP file can still be found through the /mcaps/status hash lookup.
-	fileHash, err := utils.CreateFileHash(mcapFileS3Reader)
-	if err != nil {
-		return fmt.Errorf("failed to create file hash for %v: %w", mcapFileName, err)
-	}
 
 	// The vehicle run is created upfront with only the MCAP file attached to it. Converted
 	// files (the HDF5 file and its plots) are attached later, but only when the conversion
@@ -174,10 +161,11 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 			return fmt.Errorf("failed to copy h5 file over to volume: %w", err)
 		}
 
-		// Hashing consumed the MCAP reader, so rewind before copying it.
-		if _, err := mcapFileS3Reader.Seek(0, io.SeekStart); err != nil {
-			return fmt.Errorf("failed to rewind mcap file for the volume: %w", err)
+		volumeMcapFile, err := os.Open(job.FilePath)
+		if err != nil {
+			return fmt.Errorf("failed to open mcap file for the volume: %w", err)
 		}
+		defer volumeMcapFile.Close()
 
 		// Create the MCAP file in the volume
 		destMcapFile, err := os.Create(mcapVolumePath)
@@ -187,7 +175,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		defer destMcapFile.Close()
 
 		// Copy the MCAP file contents over to the file in the volume
-		_, err = io.Copy(destMcapFile, mcapFileS3Reader)
+		_, err = io.Copy(destMcapFile, volumeMcapFile)
 		if err != nil {
 			log.Printf("failed to copy mcap file over to volume: %v", err)
 		}
