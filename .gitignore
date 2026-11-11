@@ -166,3 +166,5 @@ cython_debug/
 result/
 result
 test.mcap
+
+.env.local

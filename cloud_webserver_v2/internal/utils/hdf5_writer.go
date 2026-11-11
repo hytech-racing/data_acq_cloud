@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-
 	"gonum.org/v1/hdf5"
 )
 
