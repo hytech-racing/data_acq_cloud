@@ -320,23 +320,24 @@ func (h *AuthHandler) loginCredentials(r *http.Request, state string) (nonce, ve
 }
 
 func (h *AuthHandler) sessionCookie(session *auth.Session) *http.Cookie {
-	value := ""
 	sameSite := http.SameSiteLaxMode
-	if session != nil {
-		value = session.ID
-	}
 	if h.config.CookieSecure {
 		sameSite = http.SameSiteNoneMode
 	}
-	return &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     h.config.CookieName,
-		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   h.config.CookieSecure,
 		SameSite: sameSite,
-		Expires:  session.ExpiresAt,
 	}
+	if session == nil {
+		cookie.MaxAge = -1
+	} else {
+		cookie.Value = session.ID
+		cookie.Expires = session.ExpiresAt
+	}
+	return cookie
 }
 
 // errorRedirect sends the user back to the frontend with an error code it can display.
