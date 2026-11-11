@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -38,7 +39,9 @@ type mcapHandler struct {
 	fileProcessor  *background.FileProcessor
 	authHandler    *AuthHandler
 	mcapFetchCount int
-	lastResetTime  time.Time       
+	lastResetTime  time.Time
+	// Gives the handler its own lock
+	rateLimitMu	   sync.Mutex       
 }
 
 func NewMcapHandler(
@@ -80,6 +83,10 @@ func NewMcapHandler(
 }
 
 func (h *mcapHandler) applyRateLimit(w http.ResponseWriter) bool {
+	// Only one function at a time can check and update the counter
+	h.rateLimitMu.Lock()
+	// Unlock defer automatically when the function returns
+	defer h.rateLimitMu.Unlock()
 	if time.Now().Sub(h.lastResetTime).Abs().Seconds() > 60 {
 		h.lastResetTime = time.Now()
 		h.mcapFetchCount = 0
@@ -113,20 +120,21 @@ func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) 
 
 	s3Key := fmt.Sprintf("%s/miscFiles/%s", vehicleRunID.Hex(), header.Filename)
 	exists, err := h.dbClient.VehicleRunUseCase().FileNameExists(ctx, vehicleRunID, header.Filename)
+	// Pass err as an argument instead of building the format string with it
 	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: "+err.Error()), http.StatusInternalServerError)
+		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: %v", err), http.StatusInternalServerError)
 	}
 	if exists {
 		return NewHandlerError(fmt.Sprintf("File name already exists, duplicate file names not allowed"), http.StatusNotAcceptable)
 	}
 	err = h.s3Repository.PutObject(ctx, file, s3Key)
 	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to upload to S3: "+err.Error()), http.StatusInternalServerError)
+		return NewHandlerError(fmt.Sprintf("Failed to upload to S3: %v", err), http.StatusInternalServerError)
 	}
 
 	_, err = h.dbClient.VehicleRunUseCase().AddMiscFile(ctx, vehicleRunID, h.s3Repository.Bucket(), header.Filename, s3Key)
 	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: "+err.Error()), http.StatusInternalServerError)
+		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: %v", err), http.StatusInternalServerError)
 	}
 	response := map[string]interface{}{
 		"message": "Misc file uploaded successfully",
