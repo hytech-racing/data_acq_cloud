@@ -39,10 +39,8 @@ func NewUploadHandler(
 
 		// Direct-to-S3 uploads. The client asks the server to sign requests, then sends
 		// the file bytes straight to the bucket so the server never proxies them.
-		r.Post("/presign", HandlerFunc(handler.PresignUpload).ServeHTTP)
 		r.Post("/initiate", HandlerFunc(handler.InitiateMultipartUpload).ServeHTTP)
 		r.Post("/parts", HandlerFunc(handler.PresignUploadParts).ServeHTTP)
-		r.Post("/complete", HandlerFunc(handler.CompleteMultipartUpload).ServeHTTP)
 		r.Post("/abort", HandlerFunc(handler.AbortMultipartUpload).ServeHTTP)
 		r.Post("/finalize", HandlerFunc(handler.FinalizeUpload).ServeHTTP)
 	})

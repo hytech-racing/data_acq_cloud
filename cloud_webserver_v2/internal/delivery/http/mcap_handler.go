@@ -60,7 +60,6 @@ func NewMcapHandler(
 	r.Route("/mcaps", func(r chi.Router) {
 		// static routes
 		r.Get("/", handler.GetMcapsFromFilters)
-		r.Get("/status", HandlerFunc(handler.CheckFileStatus).ServeHTTP)
 		r.Get("/subscribe", handler.ListenToMcapUploads)
 		r.Get("/pending", handler.GetPendingMcapUploads)
 
@@ -68,8 +67,6 @@ func NewMcapHandler(
 		r.Get("/{id}", HandlerFunc(handler.GetMcapFromID).ServeHTTP)
 		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
-		r.Delete("/{id}/resetMetaDataRecord/{metadata}", HandlerFunc(handler.ResetMetadataRecordFromID).ServeHTTP)
-		r.Post("/{id}/addMiscFile", HandlerFunc(handler.UploadNewMiscFile).ServeHTTP)
 		r.Post("/{id}/changeVisibilityTo/{visibility}", HandlerFunc(handler.ChangeVisibility).ServeHTTP)
 	})
 }
@@ -84,50 +81,6 @@ func (h *mcapHandler) applyRateLimit(w http.ResponseWriter) bool {
 		h.mcapFetchCount++;
 	}
 	return false
-}
-
-// Retrieves misc files uploaded from request, calls S3 usecase to update S3, & calls vehicle run usecase to
-// update MongoDB
-func (h *mcapHandler) UploadNewMiscFile(w http.ResponseWriter, r *http.Request) *HandlerError {
-	ctx := r.Context()
-	err := r.ParseMultipartForm(32 << 20)
-	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to parse multipart form"), http.StatusBadRequest)
-	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Could not read file from request"), http.StatusBadRequest)
-	}
-	defer file.Close()
-
-	idStr := chi.URLParam(r, "id")
-	vehicleRunID, err := primitive.ObjectIDFromHex(idStr)
-	if err != nil {
-		return NewHandlerError(fmt.Sprint("Invalid vehicle run ID"), http.StatusBadRequest)
-	}
-
-	s3Key := fmt.Sprintf("%s/miscFiles/%s", vehicleRunID.Hex(), header.Filename)
-	exists, err := h.dbClient.VehicleRunUseCase().FileNameExists(ctx, vehicleRunID, header.Filename)
-	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: "+err.Error()), http.StatusInternalServerError)
-	}
-	if exists {
-		return NewHandlerError(fmt.Sprintf("File name already exists, duplicate file names not allowed"), http.StatusNotAcceptable)
-	}
-	err = h.s3Repository.PutObject(ctx, file, s3Key)
-	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to upload to S3: "+err.Error()), http.StatusInternalServerError)
-	}
-
-	_, err = h.dbClient.VehicleRunUseCase().AddMiscFile(ctx, vehicleRunID, h.s3Repository.Bucket(), header.Filename, s3Key)
-	if err != nil {
-		return NewHandlerError(fmt.Sprintf("Failed to save misc file to vehicle run: "+err.Error()), http.StatusInternalServerError)
-	}
-	response := map[string]interface{}{
-		"message": "Misc file uploaded successfully",
-	}
-	render.JSON(w, r, response)
-	return nil
 }
 
 // GetMcapsFromFilters takes in filters through Query parameters and will respond with a
@@ -453,74 +406,5 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
 
-	return nil
-}
-
-// ResetMetadataRecordFromID takes in an ID and metadata from a URL param that determines which metadata to reset in our VehicleRunModels.
-func (h *mcapHandler) ResetMetadataRecordFromID(w http.ResponseWriter, r *http.Request) *HandlerError {
-	ctx := r.Context()
-	mcapId := chi.URLParam(r, "id")
-	if mcapId == "" {
-		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
-	}
-	metadata := chi.URLParam(r, "metadata")
-	if metadata == "" {
-		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
-	}
-	objectId, err := primitive.ObjectIDFromHex(mcapId)
-	if err != nil {
-		log.Println("getting mcapID")
-		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusInternalServerError)
-	}
-
-	runModel, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
-	if err != nil {
-		return NewHandlerError(fmt.Sprintf("could not get vehicle run by id %v, %v", mcapId, err), http.StatusInternalServerError)
-	}
-
-	switch metadata {
-	case "date":
-		runModel.Date = time.Now()
-	case "note":
-		runModel.Notes = nil
-	case "location":
-		runModel.Location = nil
-	case "event_type":
-		runModel.EventType = nil
-	case "car_model":
-		runModel.CarModel = ""
-	default:
-		return NewHandlerError("invalid metadata key", http.StatusBadRequest)
-	}
-
-	err = h.dbClient.VehicleRunUseCase().UpdateVehicleRun(ctx, objectId, runModel)
-	if err != nil {
-		return NewHandlerError(err.Error(), http.StatusInternalServerError)
-	}
-	return nil
-}
-
-// CheckFileStatus is a GET endpoint to check if run with fileHash exists in MongoDB; params -> (file_hash, string)
-// NOTE: this does not check for files currently being processed
-func (h *mcapHandler) CheckFileStatus(w http.ResponseWriter, r *http.Request) *HandlerError {
-	fileHash := r.URL.Query().Get("file_hash")
-	if fileHash == "" {
-		return NewHandlerError("file_hash must not be empty", http.StatusBadRequest)
-
-	}
-	vehicle_runs, err := h.dbClient.VehicleRunUseCase().FindVehicleRunByMCAPFileHash(r.Context(), fileHash)
-	if err != nil {
-		return NewHandlerError(
-			fmt.Sprintf("error checking file status for %q: %v", fileHash, err),
-			http.StatusInternalServerError,
-		)
-
-	}
-
-	hashExists := len(vehicle_runs) > 0
-
-	data := make(map[string]interface{})
-	data["stored"] = hashExists
-	render.JSON(w, r, data)
 	return nil
 }

@@ -65,20 +65,16 @@ type completedPartRequest struct {
 	ETag       string `json:"eTag"`
 }
 
-type completeUploadRequest struct {
-	Key      string                 `json:"key"`
-	UploadID string                 `json:"uploadId"`
-	Parts    []completedPartRequest `json:"parts"`
-}
-
 type abortUploadRequest struct {
 	Key      string `json:"key"`
 	UploadID string `json:"uploadId"`
 }
 
 type finalizeUploadRequest struct {
-	Key    string `json:"key"`
-	Hidden bool   `json:"hidden"`
+	Key      string                 `json:"key"`
+	UploadID string                 `json:"uploadId"`
+	Parts    []completedPartRequest `json:"parts"`
+	Hidden   bool                   `json:"hidden"`
 }
 
 type uploadPartURL struct {
@@ -94,8 +90,6 @@ type directUploadSession struct {
 	Owner      string
 	FileName   string
 	Size       int64
-	Multipart  bool
-	Completed  bool
 	Finalizing bool
 	JobID      string
 	ExpiresAt  time.Time
@@ -135,21 +129,6 @@ func (registry *directUploadRegistry) lookup(key, owner string) (directUploadSes
 		return directUploadSession{}, err
 	}
 	return *session, nil
-}
-
-func (registry *directUploadRegistry) markCompleted(key, owner, uploadID string) error {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-
-	session, err := registry.session(key, owner)
-	if err != nil {
-		return err
-	}
-	if session.UploadID != uploadID {
-		return errUploadNotFound
-	}
-	session.Completed = true
-	return nil
 }
 
 // claimFinalize reserves the upload for finalization. A retried finalize gets the
@@ -212,44 +191,6 @@ func (registry *directUploadRegistry) takeExpired(now time.Time) []directUploadS
 	return expired
 }
 
-// PresignUpload signs a single PUT so the client can send a file straight to S3.
-func (h *uploadHandler) PresignUpload(w http.ResponseWriter, r *http.Request) *HandlerError {
-	var request presignUploadRequest
-	return h.handleJSON(w, r, &request, func(owner string) (any, *HandlerError) {
-		h.pruneExpiredUploads(r.Context())
-
-		fileName, contentType, handlerErr := h.validateStart(request, maxSinglePutSize)
-		if handlerErr != nil {
-			return nil, handlerErr
-		}
-
-		key, handlerErr := h.newUploadKey(owner, fileName)
-		if handlerErr != nil {
-			return nil, handlerErr
-		}
-		uploadURL, err := h.s3Repository.PresignPutObject(r.Context(), key, contentType, presignExpiry)
-		if err != nil {
-			log.Printf("failed to presign direct upload: %v", err)
-			return nil, NewHandlerError("failed to prepare upload", http.StatusInternalServerError)
-		}
-
-		h.directUploads.add(&directUploadSession{
-			Key:       key,
-			Owner:     owner,
-			FileName:  fileName,
-			Size:      request.Size,
-			ExpiresAt: time.Now().Add(directUploadTTL),
-		})
-
-		w.Header().Set("Cache-Control", "no-store")
-		return map[string]any{
-			"uploadUrl": uploadURL,
-			"key":       key,
-			"expiresIn": int(presignExpiry.Seconds()),
-		}, nil
-	})
-}
-
 // InitiateMultipartUpload starts a multipart upload for a file too large or too
 // unreliable for a single PUT.
 func (h *uploadHandler) InitiateMultipartUpload(w http.ResponseWriter, r *http.Request) *HandlerError {
@@ -278,7 +219,6 @@ func (h *uploadHandler) InitiateMultipartUpload(w http.ResponseWriter, r *http.R
 			Owner:     owner,
 			FileName:  fileName,
 			Size:      request.Size,
-			Multipart: true,
 			ExpiresAt: time.Now().Add(directUploadTTL),
 		})
 
@@ -317,54 +257,6 @@ func (h *uploadHandler) PresignUploadParts(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// CompleteMultipartUpload asks S3 to assemble the parts the client uploaded.
-func (h *uploadHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.Request) *HandlerError {
-	var request completeUploadRequest
-	return h.handleJSON(w, r, &request, func(owner string) (any, *HandlerError) {
-		session, handlerErr := h.multipartSession(request.Key, owner, request.UploadID)
-		if handlerErr != nil {
-			return nil, handlerErr
-		}
-		// S3 rejects an upload ID that already finished, so a retried complete is a no-op.
-		if session.Completed {
-			return map[string]any{"key": session.Key}, nil
-		}
-		if len(request.Parts) == 0 {
-			return nil, NewHandlerError("parts must not be empty", http.StatusBadRequest)
-		}
-		if len(request.Parts) > maxPartNumber {
-			return nil, NewHandlerError(fmt.Sprintf("at most %d parts are allowed", maxPartNumber), http.StatusBadRequest)
-		}
-
-		parts := make([]s3.MultipartPart, 0, len(request.Parts))
-		seen := make(map[int32]struct{}, len(request.Parts))
-		for _, part := range request.Parts {
-			if part.PartNumber < 1 || part.PartNumber > maxPartNumber {
-				return nil, NewHandlerError(fmt.Sprintf("part numbers must be between 1 and %d", maxPartNumber), http.StatusBadRequest)
-			}
-			if _, ok := seen[part.PartNumber]; ok {
-				return nil, NewHandlerError(fmt.Sprintf("duplicate part number %d", part.PartNumber), http.StatusBadRequest)
-			}
-			eTag, err := normalizeETag(part.ETag)
-			if err != nil {
-				return nil, NewHandlerError(err.Error(), http.StatusBadRequest)
-			}
-			seen[part.PartNumber] = struct{}{}
-			parts = append(parts, s3.MultipartPart{PartNumber: part.PartNumber, ETag: eTag})
-		}
-		sort.Slice(parts, func(i, j int) bool { return parts[i].PartNumber < parts[j].PartNumber })
-
-		if err := h.s3Repository.CompleteMultipartUpload(r.Context(), session.Key, session.UploadID, parts); err != nil {
-			log.Printf("failed to complete multipart upload: %v", err)
-			return nil, NewHandlerError("failed to complete upload", http.StatusInternalServerError)
-		}
-		if err := h.directUploads.markCompleted(request.Key, owner, request.UploadID); err != nil {
-			return nil, NewHandlerError("unknown upload", http.StatusNotFound)
-		}
-		return map[string]any{"key": session.Key}, nil
-	})
-}
-
 // AbortMultipartUpload discards an unfinished multipart upload.
 func (h *uploadHandler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) *HandlerError {
 	var request abortUploadRequest
@@ -373,56 +265,107 @@ func (h *uploadHandler) AbortMultipartUpload(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			return nil, NewHandlerError("unknown upload", http.StatusNotFound)
 		}
-		if session.Multipart && !session.Completed && session.UploadID != "" {
-			if err := h.s3Repository.AbortMultipartUpload(r.Context(), session.Key, session.UploadID); err != nil {
-				log.Printf("failed to abort multipart upload: %v", err)
-				return nil, NewHandlerError("failed to abort upload", http.StatusInternalServerError)
-			}
+		if err := h.abortMultipart(r.Context(), session); err != nil {
+			log.Printf("failed to abort multipart upload: %v", err)
+			return nil, NewHandlerError("failed to abort upload", http.StatusInternalServerError)
 		}
 		return map[string]any{}, nil
 	})
 }
 
+// finalizeParts converts the multipart half of a finalize request. A nil slice means
+// the request carries no multipart fields, so finalize expects the object to exist.
+func finalizeParts(request finalizeUploadRequest) ([]s3.MultipartPart, *HandlerError) {
+	switch {
+	case request.UploadID == "" && len(request.Parts) == 0:
+		return nil, nil
+	case request.UploadID == "":
+		return nil, NewHandlerError("uploadId is required when parts are provided", http.StatusBadRequest)
+	case len(request.Parts) == 0:
+		return nil, NewHandlerError("parts must not be empty", http.StatusBadRequest)
+	}
+
+	parts := make([]s3.MultipartPart, 0, len(request.Parts))
+	for _, part := range request.Parts {
+		if part.PartNumber < 1 || part.PartNumber > maxPartNumber {
+			return nil, NewHandlerError(fmt.Sprintf("part numbers must be between 1 and %d", maxPartNumber), http.StatusBadRequest)
+		}
+		parts = append(parts, s3.MultipartPart{PartNumber: part.PartNumber, ETag: part.ETag})
+	}
+	sort.Slice(parts, func(i, j int) bool { return parts[i].PartNumber < parts[j].PartNumber })
+	return parts, nil
+}
+
 // FinalizeUpload confirms that a direct upload finished and queues the MCAP for the
-// same processing pipeline the multipart form upload uses.
+// same processing pipeline the multipart form upload uses. A multipart client sends
+// its upload ID and parts here so the server assembles, checks, and queues in one call.
 func (h *uploadHandler) FinalizeUpload(w http.ResponseWriter, r *http.Request) *HandlerError {
 	var request finalizeUploadRequest
 	return h.handleJSON(w, r, &request, func(owner string) (any, *HandlerError) {
 		h.pruneExpiredUploads(r.Context())
 
+		parts, handlerErr := finalizeParts(request)
+		if handlerErr != nil {
+			return nil, handlerErr
+		}
+
 		session, existingJobID, err := h.directUploads.claimFinalize(request.Key, owner)
 		if errors.Is(err, errUploadFinalizing) {
 			return nil, NewHandlerError("upload is already being finalized", http.StatusConflict)
 		}
-		if err != nil {
+		live := err == nil
+		if !live {
 			// Sessions live in memory, so rebuild one from the key after a restart. The
 			// key is server-generated and scoped to this user; S3 holds the object.
 			recovered, ok := recoverDirectUploadSession(request.Key, owner)
 			if !ok {
 				return nil, NewHandlerError("unknown upload", http.StatusNotFound)
 			}
-			session, existingJobID = recovered, ""
+			session = recovered
 		}
 		if existingJobID != "" {
 			return map[string]any{"jobId": existingJobID}, nil
 		}
 
-		fail := func(handlerErr *HandlerError) (any, *HandlerError) {
-			h.directUploads.finishFinalize(request.Key, "")
+		jobID := ""
+		// Reset the in-progress marker on failure; on success the job ID makes a retry a no-op.
+		defer func() { h.directUploads.finishFinalize(request.Key, jobID) }()
+
+		if parts != nil && live {
+			if session.UploadID == "" {
+				return nil, NewHandlerError("upload is not a multipart upload", http.StatusBadRequest)
+			}
+			if request.UploadID != session.UploadID {
+				return nil, NewHandlerError("upload id does not match the upload", http.StatusBadRequest)
+			}
+		}
+
+		size, exists, handlerErr := h.uploadedSize(r.Context(), session.Key)
+		if handlerErr != nil {
 			return nil, handlerErr
 		}
+		if !exists {
+			switch {
+			case parts == nil && live && session.UploadID != "":
+				return nil, NewHandlerError("multipart upload has not been completed", http.StatusConflict)
+			case parts == nil:
+				return nil, NewHandlerError("uploaded file was not found in the bucket", http.StatusNotFound)
+			case !live:
+				return nil, NewHandlerError("upload session expired; restart the multipart upload", http.StatusConflict)
+			}
 
-		if session.Multipart && !session.Completed {
-			return fail(NewHandlerError("multipart upload has not been completed", http.StatusConflict))
-		}
-
-		size, err := h.s3Repository.HeadObject(r.Context(), session.Key)
-		if errors.Is(err, s3.ErrObjectNotFound) {
-			return fail(NewHandlerError("uploaded file was not found in the bucket", http.StatusNotFound))
-		}
-		if err != nil {
-			log.Printf("failed to inspect direct upload %v: %v", session.Key, err)
-			return fail(NewHandlerError("failed to inspect uploaded file", http.StatusInternalServerError))
+			if err := h.s3Repository.CompleteMultipartUpload(r.Context(), session.Key, session.UploadID, parts); err != nil {
+				log.Printf("failed to complete multipart upload: %v", err)
+				return nil, NewHandlerError("failed to complete upload", http.StatusInternalServerError)
+			}
+			size, exists, handlerErr = h.uploadedSize(r.Context(), session.Key)
+			if handlerErr != nil {
+				return nil, handlerErr
+			}
+			if !exists {
+				log.Printf("direct upload %v is missing after completing multipart upload", session.Key)
+				return nil, NewHandlerError("failed to inspect uploaded file", http.StatusInternalServerError)
+			}
 		}
 		if session.Size > 0 && size != session.Size {
 			log.Printf("direct upload %v declared %d bytes but stored %d bytes", session.Key, session.Size, size)
@@ -432,10 +375,10 @@ func (h *uploadHandler) FinalizeUpload(w http.ResponseWriter, r *http.Request) *
 			if deleteErr := h.s3Repository.DeleteObject(r.Context(), h.s3Repository.Bucket(), session.Key); deleteErr != nil {
 				log.Printf("failed to delete rejected direct upload %v: %v", session.Key, deleteErr)
 			}
-			return fail(handlerErr)
+			return nil, handlerErr
 		}
 		if !h.fileProcessor.HasCapacityFor(size) {
-			return fail(NewHandlerError("server is out of upload capacity, try again later", http.StatusServiceUnavailable))
+			return nil, NewHandlerError("server is out of upload capacity, try again later", http.StatusServiceUnavailable)
 		}
 
 		job, err := h.fileProcessor.EnqueueS3Object(
@@ -447,12 +390,24 @@ func (h *uploadHandler) FinalizeUpload(w http.ResponseWriter, r *http.Request) *
 		)
 		if err != nil {
 			log.Printf("failed to enqueue direct upload %v: %v", session.Key, err)
-			return fail(NewHandlerError("failed to queue file for processing", http.StatusInternalServerError))
+			return nil, NewHandlerError("failed to queue file for processing", http.StatusInternalServerError)
 		}
 
-		h.directUploads.finishFinalize(request.Key, job.ID)
+		jobID = job.ID
 		return map[string]any{"jobId": job.ID}, nil
 	})
+}
+
+func (h *uploadHandler) uploadedSize(ctx context.Context, key string) (int64, bool, *HandlerError) {
+	size, err := h.s3Repository.HeadObject(ctx, key)
+	if errors.Is(err, s3.ErrObjectNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		log.Printf("failed to inspect direct upload %v: %v", key, err)
+		return 0, false, NewHandlerError("failed to inspect uploaded file", http.StatusInternalServerError)
+	}
+	return size, true, nil
 }
 
 func (h *uploadHandler) validateUploadSize(size int64) *HandlerError {
@@ -468,12 +423,18 @@ func (h *uploadHandler) validateUploadSize(size int64) *HandlerError {
 // pruneExpiredUploads aborts expired multipart uploads so their parts stop costing storage.
 func (h *uploadHandler) pruneExpiredUploads(ctx context.Context) {
 	for _, session := range h.directUploads.takeExpired(time.Now()) {
-		if session.Multipart && !session.Completed && session.UploadID != "" {
-			if err := h.s3Repository.AbortMultipartUpload(ctx, session.Key, session.UploadID); err != nil {
-				log.Printf("failed to abort expired multipart upload %v: %v", session.Key, err)
-			}
+		if err := h.abortMultipart(ctx, session); err != nil {
+			log.Printf("failed to abort expired multipart upload %v: %v", session.Key, err)
 		}
 	}
+}
+
+// abortMultipart releases the parts of an unfinished multipart upload.
+func (h *uploadHandler) abortMultipart(ctx context.Context, session directUploadSession) error {
+	if session.UploadID == "" {
+		return nil
+	}
+	return h.s3Repository.AbortMultipartUpload(ctx, session.Key, session.UploadID)
 }
 
 // handleJSON runs the auth, decode, error, and render steps every direct upload
@@ -483,7 +444,7 @@ func (h *uploadHandler) handleJSON(w http.ResponseWriter, r *http.Request, targe
 	if err != nil {
 		return NewHandlerError("not authenticated", http.StatusUnauthorized)
 	}
-	if (strings.Contains(session.User.Username, ".") || strings.Contains(session.User.Username, "/")) {
+	if strings.ContainsAny(session.User.Username, "./") {
 		return NewHandlerError("are you sure this is a GT username?", http.StatusUnauthorized)
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodySize)).Decode(target); err != nil {
@@ -533,10 +494,7 @@ func (h *uploadHandler) multipartSession(key, owner, uploadID string) (directUpl
 	if err != nil {
 		return directUploadSession{}, NewHandlerError("unknown upload", http.StatusNotFound)
 	}
-	if !session.Multipart {
-		return directUploadSession{}, NewHandlerError("upload is not a multipart upload", http.StatusBadRequest)
-	}
-	if session.UploadID != uploadID {
+	if uploadID == "" || session.UploadID != uploadID {
 		return directUploadSession{}, NewHandlerError("upload id does not match the upload", http.StatusBadRequest)
 	}
 	return session, nil
@@ -550,17 +508,15 @@ func validatePartNumbers(numbers []int32, limit int) ([]int32, *HandlerError) {
 		return nil, NewHandlerError(fmt.Sprintf("request at most %d part URLs at a time", limit), http.StatusBadRequest)
 	}
 
-	seen := make(map[int32]struct{}, len(numbers))
-	for _, number := range numbers {
+	sort.Slice(numbers, func(i, j int) bool { return numbers[i] < numbers[j] })
+	for i, number := range numbers {
 		if number < 1 || number > maxPartNumber {
 			return nil, NewHandlerError(fmt.Sprintf("part numbers must be between 1 and %d", maxPartNumber), http.StatusBadRequest)
 		}
-		if _, ok := seen[number]; ok {
+		if i > 0 && number == numbers[i-1] {
 			return nil, NewHandlerError(fmt.Sprintf("duplicate part number %d", number), http.StatusBadRequest)
 		}
-		seen[number] = struct{}{}
 	}
-	sort.Slice(numbers, func(i, j int) bool { return numbers[i] < numbers[j] })
 	return numbers, nil
 }
 
@@ -573,7 +529,7 @@ func sanitizeUploadFileName(raw string) (string, *HandlerError) {
 		return "", NewHandlerError("fileName is required", http.StatusBadRequest)
 	case len(fileName) > 255:
 		return "", NewHandlerError("fileName is too long", http.StatusBadRequest)
-	case fileName == "." || fileName == ".." || strings.ContainsAny(fileName, `/\`):
+	case strings.ContainsAny(fileName, `/\`):
 		return "", NewHandlerError("fileName must not contain path separators", http.StatusBadRequest)
 	case strings.ContainsFunc(fileName, func(character rune) bool { return character < 0x20 || character == 0x7f }):
 		return "", NewHandlerError("fileName contains invalid characters", http.StatusBadRequest)
@@ -599,19 +555,4 @@ func recoverDirectUploadSession(key, owner string) (directUploadSession, bool) {
 		return directUploadSession{}, false
 	}
 	return directUploadSession{Key: key, Owner: owner, FileName: fileName}, true
-}
-
-// normalizeETag quotes the value S3 expects, including from stores that omit the quotes.
-func normalizeETag(raw string) (string, error) {
-	eTag := strings.TrimSpace(raw)
-	if eTag == "" {
-		return "", errors.New("each part must include an eTag")
-	}
-	if len(eTag) >= 2 && strings.HasPrefix(eTag, `"`) && strings.HasSuffix(eTag, `"`) {
-		eTag = eTag[1 : len(eTag)-1]
-	}
-	if eTag == "" || strings.Contains(eTag, `"`) {
-		return "", errors.New("eTag is invalid")
-	}
-	return `"` + eTag + `"`, nil
 }

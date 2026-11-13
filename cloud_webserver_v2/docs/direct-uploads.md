@@ -5,9 +5,9 @@ server to sign a request, uploads the bytes directly to the S3 bucket, and then 
 the server to process the finished object.
 
 ```
-Browser ──presign/initiate/parts/complete──→ Cloud Webserver ──sign──→ (no file bytes)
-Browser ──────────file bytes────────────────────────────────────────→ S3
-Browser ──finalize─────────────────────────→ Cloud Webserver ──→ FileProcessor
+Browser ──presign/initiate/parts──→ Cloud Webserver ──sign──→ (no file bytes)
+Browser ──────────file bytes────────────────────────────────→ S3
+Browser ──finalize─────────────────→ Cloud Webserver ──→ S3, FileProcessor
 ```
 
 Every endpoint below requires a valid session cookie (`credentials: "include"` on the
@@ -113,25 +113,6 @@ Response:
 Part numbers run from 1 to 10000. Every part except the last must be at least 5 MiB.
 Part URLs are valid for 15 minutes.
 
-### `POST /uploads/complete`
-
-Tells S3 to assemble the uploaded parts. Collect the `ETag` response header from each
-part `PUT` and send it back here. Parts are sorted by the server, so order does not
-matter.
-
-Request:
-
-```json
-{
-  "key": "direct-uploads/dchen656/8Yb.../run_2026-11-08.mcap",
-  "uploadId": "2~abc...",
-  "parts": [
-    { "partNumber": 1, "eTag": "\"9b2cf535f27731c974343645a3985328\"" },
-    { "partNumber": 2, "eTag": "\"d41d8cd98f00b204e9800998ecf8427e\"" }
-  ]
-}
-```
-
 ### `POST /uploads/abort`
 
 Discards an unfinished multipart upload. The request body is `{ "key": ..., "uploadId": ... }`.
@@ -142,11 +123,31 @@ Confirms the upload landed in the bucket and queues the MCAP for the same proces
 pipeline used by `POST /mcaps/bulk_upload`. The response contains the file processor
 job ID; subscribe to `GET /mcaps/subscribe` to follow its progress.
 
-Request:
+A single `PUT` sends only the key. A multipart upload also sends the upload ID and the
+parts. The server asks S3 to assemble the parts, then queues the finished object.
+
+Request, single PUT:
 
 ```json
 { "key": "direct-uploads/dchen656/8Yb.../run_2026-11-08.mcap", "hidden": false }
 ```
+
+Request, multipart:
+
+```json
+{
+  "key": "direct-uploads/dchen656/8Yb.../run_2026-11-08.mcap",
+  "uploadId": "2~abc...",
+  "parts": [
+    { "partNumber": 1, "eTag": "\"9b2cf535f27731c974343645a3985328\"" },
+    { "partNumber": 2, "eTag": "\"d41d8cd98f00b204e9800998ecf8427e\"" }
+  ],
+  "hidden": false
+}
+```
+
+Collect the `ETag` response header from each part `PUT`. The server sorts the parts by
+number, so the client can send them in any order.
 
 Response:
 
@@ -154,8 +155,10 @@ Response:
 { "message": null, "data": { "jobId": "job_1762123456789012345" } }
 ```
 
-Finalize is idempotent: retrying it returns the job ID from the first successful call
-instead of processing the file twice.
+Finalize is idempotent while the server process is running. A retry returns the job ID
+from the first successful call instead of processing the file twice. A retry after S3
+assembled the parts skips assembly, even after a server restart, because the server
+sees the assembled object in the bucket.
 
 ## Client flow
 
@@ -224,12 +227,11 @@ async function uploadMultipart(file, partSize = 64 * 1024 * 1024, concurrency = 
 
   try {
     await Promise.all(Array.from({ length: concurrency }, worker));
-    await api("/uploads/complete", {
+    return api("/uploads/finalize", {
       key: init.key,
       uploadId: init.uploadId,
       parts: completed,
     });
-    return api("/uploads/finalize", { key: init.key });
   } catch (error) {
     await api("/uploads/abort", { key: init.key, uploadId: init.uploadId }).catch(() => {});
     throw error;
@@ -267,12 +269,13 @@ set. That endpoint must be reachable from the browser, not only from the server.
 | Status | Meaning |
 | --- | --- |
 | 401 | No valid session cookie |
-| 400 | Invalid file name/type/size, bad part number, or malformed body |
-| 404 | Unknown upload (expired, never issued, or owned by another user), or the object has not landed in S3 yet |
-| 409 | Multipart upload not completed yet, or finalize already in progress |
+| 400 | Invalid file name/type/size, bad part number, missing or mismatched upload ID, or malformed body |
+| 404 | Unknown upload (expired, never issued, or owned by another user), or the uploaded object is not in the bucket |
+| 409 | Finalize already in progress, a multipart upload has not been assembled, or its session expired |
 | 503 | The server has no room to stage more files; retry after uploads finish |
 
-Upload sessions are kept in memory for 24 hours. Finalizing a finished single `PUT`
-survives a server restart because the server can rebuild the session from the key and
-the object in S3. An in-progress multipart upload does not: its upload ID is lost, so
-the client has to start that upload again.
+Upload sessions are kept in memory for 24 hours. A single `PUT` survives a server
+restart because the server can rebuild the session from the key. An assembled
+multipart upload also survives, because the server sees the object in the bucket. An
+in-progress multipart upload does not: its upload ID is lost with the process, so the
+client has to start that upload again.
