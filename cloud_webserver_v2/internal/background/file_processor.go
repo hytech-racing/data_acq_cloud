@@ -2,6 +2,7 @@ package background
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 )
@@ -25,6 +27,11 @@ const (
 	StatusProcessing McapStatus = "processing"
 	StatusCompleted  McapStatus = "completed"
 	StatusFailed     McapStatus = "failed"
+)
+
+var (
+	ErrInsufficientCapacity = errors.New("not enough file capacity to stage the run's mcap")
+	ErrConversionInProgress = errors.New("a conversion is already in progress for this run")
 )
 
 // A FileJobProcessor serves as an interface to wrap a Process function used by a FileJob.
@@ -67,6 +74,10 @@ type FileProcessor struct {
 
 	// Keeps track of uploads that are still in-progress
 	pendingMcapFileUploads map[string]struct{}
+
+	// Keeps track of runs with a re-conversion queued or running, so the same run is
+	// never converted twice at once.
+	pendingRerunConversions map[primitive.ObjectID]struct{}
 
 	// processingWg is a WaitGroup used to make sure we complete the last task before gracefuly exiting
 	processingWg sync.WaitGroup
@@ -114,13 +125,17 @@ type FileJob struct {
 	// FileDir is the directory of where the file lives
 	FileDir string
 
-	// SourceS3Key is the key the client uploaded the file to. The processor downloads
-	// the object to FilePath before running the job; it is never re-uploaded because
-	// it already lives in the bucket.
+	// SourceS3Key is the key the client uploaded the file to. The processor stages the
+	// object to FilePath before running the job, reusing the archived copy when one is
+	// complete; it is never re-uploaded because it already lives in the bucket.
 	SourceS3Key string
 
 	// Size is the size of the file in bytes
 	Size int64
+
+	// ReusedLocalCopy reports that FilePath points at a file this job did not create, so
+	// the job must leave it in place for later jobs to reuse.
+	ReusedLocalCopy bool
 
 	Hidden bool
 }
@@ -134,16 +149,17 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 	}
 
 	fp := &FileProcessor{
-		directory:              uploadDir,
-		fileQueueChan:          make(chan *FileJob, 100),
-		stopChan:               make(chan bool),
-		processingWg:           sync.WaitGroup{},
-		mu:                     sync.RWMutex{},
-		maxTotalSize:           maxTotalSize,
-		dbClient:               dbClient,
-		s3Repository:           s3Repository,
-		mcapStatusBroadcaster:  NewMcapStatusBroadcaster(),
-		pendingMcapFileUploads: make(map[string]struct{}),
+		directory:               uploadDir,
+		fileQueueChan:           make(chan *FileJob, 100),
+		stopChan:                make(chan bool),
+		processingWg:            sync.WaitGroup{},
+		mu:                      sync.RWMutex{},
+		maxTotalSize:            maxTotalSize,
+		dbClient:                dbClient,
+		s3Repository:            s3Repository,
+		mcapStatusBroadcaster:   NewMcapStatusBroadcaster(),
+		pendingMcapFileUploads:  make(map[string]struct{}),
+		pendingRerunConversions: make(map[primitive.ObjectID]struct{}),
 	}
 
 	var totalSize int64
@@ -171,34 +187,75 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 // request that registers the upload returns immediately no matter how large the file is.
 func (fp *FileProcessor) EnqueueS3Object(objectKey, filename string, size int64, processor FileJobProcessor, hidden bool) (*FileJob, error) {
 	if !fp.HasCapacityFor(size) {
-		return nil, fmt.Errorf("upload would exceed the server's file size limit")
+		return nil, ErrInsufficientCapacity
 	}
 
+	job := fp.newFileJob(objectKey, filename, size, processor)
+	job.Hidden = hidden
+
+	log.Printf("job put in queue for direct upload %v, %v", objectKey, job.ID)
+	fp.queueJob(job)
+
+	return job, nil
+}
+
+// EnqueueRerunConversion queues a job that regenerates a run's converted files from the
+// MCAP file the run already stores in S3. The run is marked as converting as soon as the
+// job is queued, so a second request gets ErrConversionInProgress instead of converting
+// the same run twice.
+func (fp *FileProcessor) EnqueueRerunConversion(vehicleRunID primitive.ObjectID, mcapFile models.FileModel, size int64) (*FileJob, error) {
+	if !fp.HasCapacityFor(size) {
+		return nil, ErrInsufficientCapacity
+	}
+
+	fp.mu.Lock()
+	if _, exists := fp.pendingRerunConversions[vehicleRunID]; exists {
+		fp.mu.Unlock()
+		return nil, ErrConversionInProgress
+	}
+	fp.pendingRerunConversions[vehicleRunID] = struct{}{}
+	fp.mu.Unlock()
+
+	fileName := mcapFile.FileName
+	if fileName == "" {
+		// Older database entries may not have stored a file name.
+		fileName = filepath.Base(mcapFile.FilePath)
+	}
+
+	job := fp.newFileJob(mcapFile.FilePath, fileName, size, &PostProcessMCAPUploadJob{RerunOf: &vehicleRunID})
+
+	log.Printf("re-conversion queued for vehicle run %v, %v", vehicleRunID.Hex(), job.ID)
+	fp.queueJob(job)
+
+	return job, nil
+}
+
+// newFileJob builds the state every queued job shares. Hidden is set by the caller.
+func (fp *FileProcessor) newFileJob(sourceS3Key, filename string, size int64, processor FileJobProcessor) *FileJob {
 	id := fmt.Sprintf("job_%d", time.Now().UnixNano())
-	job := &FileJob{
+	now := time.Now()
+
+	return &FileJob{
 		ID:          id,
 		Filename:    filename,
 		Size:        size,
 		Status:      StatusPending,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
 		FilePath:    filepath.Join(fp.directory, fmt.Sprintf("%s_%s", id, filename)),
 		FileDir:     fp.directory,
-		SourceS3Key: objectKey,
-		Date:        time.Now(), // TODO: Change to date gotten from MCAP
+		SourceS3Key: sourceS3Key,
+		Date:        now, // TODO: Change to date gotten from MCAP
 		Processor:   processor,
-		Hidden:      hidden,
 	}
+}
 
-	// The downloaded file will occupy local storage until the job finishes, so count
-	// it now. finishJob reverses this once the file has been consumed or removed.
+// queueJob counts the file the job will stage against the processor's limits and hands
+// the job to the worker. finishJob reverses the space once the job is done.
+func (fp *FileProcessor) queueJob(job *FileJob) {
 	fp.TotalSize.Add(job.Size)
 	fp.MiddlewareEstimatedSize.Add(job.Size)
-
-	log.Printf("job put in queue for direct upload %v, %v", objectKey, job.ID)
 	fp.fileQueueChan <- job
-
-	return job, nil
 }
 
 // HasCapacityFor reports whether the file processor can stage another size bytes. It
@@ -212,10 +269,11 @@ func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 	return currentSize+size <= fp.maxTotalSize
 }
 
-// stageS3Object downloads a directly uploaded object from S3 into the upload directory
-// and returns the staged file's hash. os.Create returns the single read/write handle
-// used by both the concurrent download and the later hash read.
-func (fp *FileProcessor) stageS3Object(ctx context.Context, job *FileJob) (string, error) {
+func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob) (string, error) {
+	if hash, ok := stageArchivedCopy(job); ok {
+		return hash, nil
+	}
+
 	file, err := os.Create(job.FilePath)
 	if err != nil {
 		return "", err
@@ -227,27 +285,59 @@ func (fp *FileProcessor) stageS3Object(ctx context.Context, job *FileJob) (strin
 		return "", err
 	}
 
-	return hashStagedFile(file, downloaded, job.Size)
-}
-
-// hashStagedFile verifies the staged file is the size the upload reported and returns
-// its SHA-256 hash.
-func hashStagedFile(file *os.File, downloaded, expected int64) (string, error) {
-	if downloaded != expected {
-		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, expected)
+	if downloaded != job.Size {
+		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, job.Size)
 	}
 
 	return utils.CreateFileHash(file)
 }
 
+// stageArchivedCopy points the job at the MCAP a previous conversion archived in the run
+// metadata volume and returns its hash. Only a copy with exactly the expected size is
+// reused, so a partially written archive falls back to the download.
+func stageArchivedCopy(job *FileJob) (string, bool) {
+	localPath := filepath.Join(RUN_METADATA_DIR, job.SourceS3Key)
+
+	info, err := os.Stat(localPath)
+	if err != nil || info.Size() != job.Size {
+		return "", false
+	}
+
+	file, err := os.Open(localPath)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+
+	hash, err := utils.CreateFileHash(file)
+	if err != nil {
+		return "", false
+	}
+
+	job.FilePath = localPath
+	job.ReusedLocalCopy = true
+	log.Printf("reusing archived copy %v for job %v", localPath, job.ID)
+
+	return hash, true
+}
+
 // finishJob removes the job's staged file and releases the space it occupied. It runs
 // exactly once per processed job, whether the job succeeded or failed.
 func (fp *FileProcessor) finishJob(job *FileJob) {
-	if err := os.Remove(job.FilePath); err != nil && !os.IsNotExist(err) {
-		log.Printf("failed to remove processed file %v: %v", job.FilePath, err)
+	// A reused archived copy is shared with later jobs, so only a file this job staged is removed.
+	if !job.ReusedLocalCopy {
+		if err := os.Remove(job.FilePath); err != nil && !os.IsNotExist(err) {
+			log.Printf("failed to remove processed file %v: %v", job.FilePath, err)
+		}
 	}
 	fp.TotalSize.Add(-job.Size)
 	fp.MiddlewareEstimatedSize.Add(-job.Size)
+
+	if rerun, ok := job.Processor.(*PostProcessMCAPUploadJob); ok && rerun.RerunOf != nil {
+		fp.mu.Lock()
+		delete(fp.pendingRerunConversions, *rerun.RerunOf)
+		fp.mu.Unlock()
+	}
 }
 
 // jobQueueListener creates a listener which continuously polls the channels to check if there
