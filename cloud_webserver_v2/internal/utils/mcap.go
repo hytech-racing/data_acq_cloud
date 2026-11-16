@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/foxglove/mcap/go/mcap"
 	"github.com/jhump/protoreflect/dynamic"
@@ -34,6 +35,28 @@ func NewMcapUtils() *McapUtils {
 	return &McapUtils{
 		pbUtils: NewProtobufUtils(),
 	}
+}
+
+// McapDurationSeconds reads the recording duration from the optional MCAP summary.
+func McapDurationSeconds(r io.ReadSeeker) (*float64, error) {
+	reader, err := mcap.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	info, err := reader.Info()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := info.Statistics
+	if stats == nil || stats.MessageCount == 0 || stats.MessageEndTime < stats.MessageStartTime {
+		return nil, nil
+	}
+
+	seconds := float64(stats.MessageEndTime-stats.MessageStartTime) / float64(time.Second)
+	return &seconds, nil
 }
 
 func (m *McapUtils) NewReader(r io.Reader) (*McapReader, error) {
