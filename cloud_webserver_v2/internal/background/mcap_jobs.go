@@ -27,14 +27,9 @@ type PostProcessMCAPUploadJob struct{}
 func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJob) error {
 	ctx := context.Background()
 	fp.broadcastFileUploadStart(job)
-	// The staged file and the space it reserves are released on every exit path, not
-	// only the successful one, so a failed conversion cannot exhaust the queue budget.
 	defer fp.finishJob(job)
 
-	// The staged download also computes the file hash before any conversion runs, so
-	// runs that only ever end up with an MCAP file stay findable through the
-	// /mcaps/status hash lookup.
-	fileHash, err := fp.stageS3Object(ctx, job)
+	fileHash, err := fp.downloadAndStageMCAP(ctx, job)
 	if err != nil {
 		return fmt.Errorf("failed to download directly uploaded mcap %v: %w", job.Filename, err)
 	}

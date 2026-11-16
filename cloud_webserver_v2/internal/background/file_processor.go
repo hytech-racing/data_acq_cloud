@@ -201,9 +201,6 @@ func (fp *FileProcessor) EnqueueS3Object(objectKey, filename string, size int64,
 	return job, nil
 }
 
-// HasCapacityFor reports whether the file processor can stage another size bytes. It
-// looks at both the actual size of the files in the upload directory and the
-// middleware's estimate, which includes uploads that are still in flight.
 func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 	currentSize := fp.TotalSize.Load()
 	if estimated := fp.MiddlewareEstimatedSize.Load(); estimated > currentSize {
@@ -212,10 +209,7 @@ func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 	return currentSize+size <= fp.maxTotalSize
 }
 
-// stageS3Object downloads a directly uploaded object from S3 into the upload directory
-// and returns the staged file's hash. os.Create returns the single read/write handle
-// used by both the concurrent download and the later hash read.
-func (fp *FileProcessor) stageS3Object(ctx context.Context, job *FileJob) (string, error) {
+func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob) (string, error) {
 	file, err := os.Create(job.FilePath)
 	if err != nil {
 		return "", err
@@ -227,14 +221,8 @@ func (fp *FileProcessor) stageS3Object(ctx context.Context, job *FileJob) (strin
 		return "", err
 	}
 
-	return hashStagedFile(file, downloaded, job.Size)
-}
-
-// hashStagedFile verifies the staged file is the size the upload reported and returns
-// its SHA-256 hash.
-func hashStagedFile(file *os.File, downloaded, expected int64) (string, error) {
-	if downloaded != expected {
-		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, expected)
+	if downloaded != job.Size {
+		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, job.Size)
 	}
 
 	return utils.CreateFileHash(file)
