@@ -23,8 +23,6 @@ import (
 // Direct uploads keep file bytes away from this server. The client asks for signed
 // URLs, uploads to S3 itself, then asks this server to process the finished object.
 const (
-	maxPartNumber = 10000
-
 	// At 64 MiB the 20 GiB file cap yields at most 320 parts, far below S3's limit
 	// of 10,000, and every part except the last clears S3's 5 MiB minimum.
 	uploadPartSize int64 = 64 << 20
@@ -232,29 +230,6 @@ func (h *uploadHandler) AbortMultipartUpload(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-// finalizeParts converts the multipart half of a finalize request. A nil slice means
-// the request carries no multipart fields, so finalize expects the object to exist.
-func finalizeParts(request finalizeUploadRequest) ([]s3.MultipartPart, *HandlerError) {
-	switch {
-	case request.UploadID == "" && len(request.Parts) == 0:
-		return nil, nil
-	case request.UploadID == "":
-		return nil, NewHandlerError("uploadId is required when parts are provided", http.StatusBadRequest)
-	case len(request.Parts) == 0:
-		return nil, NewHandlerError("parts must not be empty", http.StatusBadRequest)
-	}
-
-	parts := make([]s3.MultipartPart, 0, len(request.Parts))
-	for _, part := range request.Parts {
-		if part.PartNumber < 1 || part.PartNumber > maxPartNumber {
-			return nil, NewHandlerError(fmt.Sprintf("part numbers must be between 1 and %d", maxPartNumber), http.StatusBadRequest)
-		}
-		parts = append(parts, s3.MultipartPart{PartNumber: part.PartNumber, ETag: part.ETag})
-	}
-	sort.Slice(parts, func(i, j int) bool { return parts[i].PartNumber < parts[j].PartNumber })
-	return parts, nil
-}
-
 // FinalizeUpload confirms that a direct upload finished and queues the MCAP for the
 // same processing pipeline the multipart form upload uses. A multipart client sends
 // its upload ID and parts here so the server assembles, checks, and queues in one call.
@@ -263,9 +238,8 @@ func (h *uploadHandler) FinalizeUpload(w http.ResponseWriter, r *http.Request) *
 	return h.handleJSON(w, r, &request, func(owner string) (any, *HandlerError) {
 		h.pruneExpiredUploads(r.Context())
 
-		parts, handlerErr := finalizeParts(request)
-		if handlerErr != nil {
-			return nil, handlerErr
+		if request.UploadID == "" {
+			return nil, NewHandlerError("uploadId is required", http.StatusBadRequest)
 		}
 
 		session, existingJobID, err := h.directUploads.claimFinalize(request.Key, owner)
@@ -297,7 +271,7 @@ func (h *uploadHandler) FinalizeUpload(w http.ResponseWriter, r *http.Request) *
 			h.directUploads.mu.Unlock()
 		}()
 
-		if live && parts != nil && request.UploadID != session.UploadID {
+		if live && request.UploadID != session.UploadID {
 			return nil, NewHandlerError("upload id does not match the upload", http.StatusBadRequest)
 		}
 
@@ -306,15 +280,13 @@ func (h *uploadHandler) FinalizeUpload(w http.ResponseWriter, r *http.Request) *
 			return nil, handlerErr
 		}
 		if !exists {
-			switch {
-			case parts == nil && live:
-				return nil, NewHandlerError("multipart upload has not been completed", http.StatusConflict)
-			case parts == nil:
-				return nil, NewHandlerError("uploaded file was not found in the bucket", http.StatusNotFound)
-			case !live:
+			if !live {
 				return nil, NewHandlerError("upload session expired; restart the multipart upload", http.StatusConflict)
 			}
-
+			parts := make([]s3.MultipartPart, 0, len(request.Parts))
+			for _, part := range request.Parts {
+				parts = append(parts, s3.MultipartPart{PartNumber: part.PartNumber, ETag: part.ETag})
+			}
 			if err := h.s3Repository.CompleteMultipartUpload(r.Context(), session.Key, session.UploadID, parts); err != nil {
 				log.Printf("failed to complete multipart upload: %v", err)
 				return nil, NewHandlerError("failed to complete upload", http.StatusInternalServerError)

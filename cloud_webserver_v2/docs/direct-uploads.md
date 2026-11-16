@@ -100,7 +100,8 @@ Request:
 ```
 
 Collect the `ETag` response header from each part `PUT`. The server sorts the parts by
-number, so the client can send them in any order.
+number, so the client can send them in any order. `uploadId` and a non-empty `parts`
+list are both required.
 
 Response:
 
@@ -202,8 +203,8 @@ endpoint must be reachable from the browser, not only from the server.
 | --- | --- |
 | 400 | Invalid file name/type/size, malformed body, or a finalize request with a missing, mismatched, or invalid upload ID or part list |
 | 401 | No valid session cookie |
-| 404 | Unknown upload (expired, never issued, or owned by another user), or the uploaded object is not in the bucket |
-| 409 | Finalize already in progress, a multipart upload has not been assembled, or its session expired |
+| 404 | Unknown upload (expired, never issued, or owned by another user) |
+| 409 | Finalize already in progress, or the upload session expired |
 | 500 | S3 could not start or sign the upload, or the upload could not be assembled |
 | 503 | The server has no room to stage more files; retry after uploads finish |
 

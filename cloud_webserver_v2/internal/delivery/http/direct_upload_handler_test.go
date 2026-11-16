@@ -52,17 +52,14 @@ func TestSanitizeUploadFileName(t *testing.T) {
 }
 
 func TestFinalizeParts(t *testing.T) {
-	t.Run("no multipart fields", func(t *testing.T) {
-		parts, handlerErr := finalizeParts(finalizeUploadRequest{Key: "key"})
-		if handlerErr != nil || parts != nil {
-			t.Fatalf("finalizeParts() = %v, %v, want nil, nil", parts, handlerErr)
-		}
-	})
-
 	rejected := []struct {
 		name    string
 		request finalizeUploadRequest
 	}{
+		{
+			name:    "no multipart fields",
+			request: finalizeUploadRequest{Key: "key"},
+		},
 		{
 			name:    "parts without upload id",
 			request: finalizeUploadRequest{Parts: []completedPartRequest{{PartNumber: 1, ETag: `"a"`}}},
