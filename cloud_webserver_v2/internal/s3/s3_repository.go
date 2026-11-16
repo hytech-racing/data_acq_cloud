@@ -188,24 +188,6 @@ func (s *S3Repository) HeadObject(ctx context.Context, objectKey string) (int64,
 	return aws.ToInt64(output.ContentLength), nil
 }
 
-// GetObjectReader opens an object for streaming. The caller owns the returned reader
-// and must close it.
-func (s *S3Repository) GetObjectReader(ctx context.Context, objectKey string) (io.ReadCloser, error) {
-	output, err := s.s3_session.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.s3_session.bucket),
-		Key:    aws.String(objectKey),
-	})
-	if err != nil {
-		var noSuchKey *types.NoSuchKey
-		if errors.As(err, &noSuchKey) {
-			return nil, ErrObjectNotFound
-		}
-		return nil, fmt.Errorf("couldn't get %v:%v: %w", s.s3_session.bucket, objectKey, err)
-	}
-
-	return output.Body, nil
-}
-
 // DownloadObject stages an object into writer with the transfer manager's concurrent
 // downloader and returns the number of bytes written.
 func (s *S3Repository) DownloadObject(ctx context.Context, objectKey string, writer io.WriterAt) (int64, error) {
