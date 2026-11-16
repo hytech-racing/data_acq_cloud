@@ -97,28 +97,22 @@ func TestFinalizeParts(t *testing.T) {
 	})
 }
 
-func TestValidatePartNumbers(t *testing.T) {
-	numbers, handlerErr := validatePartNumbers([]int32{3, 1, 2}, 3)
-	if handlerErr != nil || !slices.Equal(numbers, []int32{1, 2, 3}) {
-		t.Fatalf("validatePartNumbers sorted = %v, %v, want [1 2 3]", numbers, handlerErr)
-	}
-
+func TestUploadPartCount(t *testing.T) {
 	tests := []struct {
-		name    string
-		numbers []int32
-		limit   int
+		name string
+		size int64
+		want int32
 	}{
-		{name: "empty", numbers: nil, limit: 10},
-		{name: "over limit", numbers: []int32{1, 2, 3}, limit: 2},
-		{name: "zero", numbers: []int32{0}, limit: 10},
-		{name: "above max", numbers: []int32{maxPartNumber + 1}, limit: 10},
-		{name: "duplicate", numbers: []int32{1, 1}, limit: 10},
+		{name: "one byte", size: 1, want: 1},
+		{name: "exactly one part", size: uploadPartSize, want: 1},
+		{name: "one byte over one part", size: uploadPartSize + 1, want: 2},
+		{name: "twenty gibibytes", size: 20 << 30, want: 320},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, handlerErr := validatePartNumbers(test.numbers, test.limit); handlerErr == nil {
-				t.Fatalf("validatePartNumbers(%v, %d) accepted", test.numbers, test.limit)
+			if got := uploadPartCount(test.size); got != test.want {
+				t.Fatalf("uploadPartCount(%d) = %d, want %d", test.size, got, test.want)
 			}
 		})
 	}

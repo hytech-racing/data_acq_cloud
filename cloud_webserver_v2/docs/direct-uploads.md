@@ -1,21 +1,18 @@
 # Direct-to-S3 uploads
 
 Large MCAP files are not sent through the application server. The client asks the
-server to sign a request, uploads the bytes directly to the S3 bucket, and then tells
+server to sign part URLs, uploads the bytes directly to the S3 bucket, and then tells
 the server to process the finished object.
 
 ```
-Browser ──presign/initiate/parts──→ Cloud Webserver ──sign──→ (no file bytes)
-Browser ──────────file bytes────────────────────────────────→ S3
-Browser ──finalize─────────────────→ Cloud Webserver ──→ S3, FileProcessor
+Browser ──initiate──→ Cloud Webserver ──sign──→ (no file bytes)
+Browser ─────────────file parts──────────────→ S3
+Browser ──finalize──→ Cloud Webserver ──→ S3, FileProcessor
 ```
 
-Every endpoint below requires a valid session cookie (`credentials: "include"` on the
-client) and returns the server's usual envelope:
-
-```json
-{ "message": null, "data": { } }
-```
+The `POST /uploads/*` endpoints require a valid session cookie
+(`credentials: "include"` on the client) and return their JSON object directly.
+`GET /uploads/limits` requires no session and uses the server's usual envelope.
 
 The server generates the S3 key. Clients never choose it, and every key is scoped to
 the signed-in user:
@@ -31,10 +28,10 @@ capacity (currently 20 GiB).
 
 All paths are also reachable under the `/api/v2` mount.
 
-### `POST /uploads/presign`
+### `POST /uploads/initiate`
 
-Use for files up to 5 GiB. Validates auth, file type and size, then returns a URL for a
-single `PUT`.
+Starts a multipart upload and returns every presigned part URL in the same response.
+The client makes one request per file.
 
 Request:
 
@@ -46,93 +43,49 @@ Request:
 }
 ```
 
-Response:
-
-```json
-{
-  "message": null,
-  "data": {
-    "uploadUrl": "https://bucket.s3.amazonaws.com/direct-uploads/...",
-    "key": "direct-uploads/dchen656/8Yb.../run_2026-11-08.mcap",
-    "expiresIn": 300
-  }
-}
-```
-
-`Content-Type` is part of the signature. The `PUT` must send exactly the same value
-that was used in the presign request. It also must be started within `expiresIn`
-seconds; the transfer itself may take longer.
-
-### `POST /uploads/initiate`
-
-Starts a multipart upload. Use this for files over 5 GiB or when resumability matters.
-
-Request: the same body as `/uploads/presign`.
+`contentType` defaults to `application/octet-stream` when empty.
 
 Response:
 
 ```json
 {
-  "message": null,
-  "data": {
-    "uploadId": "2~abc...",
-    "key": "direct-uploads/dchen656/8Yb.../run_2026-11-08.mcap"
-  }
-}
-```
-
-### `POST /uploads/parts`
-
-Returns presigned URLs for one batch of parts. Request at most 100 part numbers per
-call, and request them just before uploading so they do not expire while waiting.
-
-Request:
-
-```json
-{
-  "key": "direct-uploads/dchen656/8Yb.../run_2026-11-08.mcap",
   "uploadId": "2~abc...",
-  "partNumbers": [1, 2, 3, 4]
+  "key": "direct-uploads/dchen656/8Yb.../run_2026-11-08.mcap",
+  "partSize": 67108864,
+  "parts": [
+    { "partNumber": 1, "url": "https://bucket.s3.amazonaws.com/...&partNumber=1" },
+    { "partNumber": 2, "url": "https://bucket.s3.amazonaws.com/...&partNumber=2" }
+  ]
 }
 ```
 
-Response:
+The server chooses the part size: 64 MiB (`67108864` bytes). The part count is
+`ceil(size / partSize)`, and part numbers run from 1 through that count. The 20 GiB
+file cap yields at most 320 parts. Every part except the last must be at least 5 MiB,
+which the 64 MiB part size always satisfies. The last part is the remainder and may be
+smaller.
 
-```json
-{
-  "message": null,
-  "data": {
-    "parts": [
-      { "partNumber": 1, "url": "https://bucket.s3.amazonaws.com/...&partNumber=1" },
-      { "partNumber": 2, "url": "https://bucket.s3.amazonaws.com/...&partNumber=2" }
-    ]
-  }
-}
-```
+Every part URL is signed for 24 hours, the same lifetime as the upload session. The
+client keeps them for the whole transfer. Retrying a failed part reuses the same URL.
 
-Part numbers run from 1 to 10000. Every part except the last must be at least 5 MiB.
-Part URLs are valid for 15 minutes.
+The response carries `Cache-Control: no-store`.
+
+If the server cannot create the multipart upload or sign a part URL, it returns 500
+`failed to prepare upload`, discards the multipart upload, and does not register the
+session.
 
 ### `POST /uploads/abort`
 
-Discards an unfinished multipart upload. The request body is `{ "key": ..., "uploadId": ... }`.
+Discards an unfinished multipart upload and its uploaded parts. The request body is
+`{ "key": ..., "uploadId": ... }`. A successful response is `{}`.
 
 ### `POST /uploads/finalize`
 
-Confirms the upload landed in the bucket and queues the MCAP for the same processing
+Tells S3 to assemble the parts and queues the finished MCAP for the same processing
 pipeline used by `POST /mcaps/bulk_upload`. The response contains the file processor
-job ID; subscribe to `GET /mcaps/subscribe` to follow its progress.
+job ID.
 
-A single `PUT` sends only the key. A multipart upload also sends the upload ID and the
-parts. The server asks S3 to assemble the parts, then queues the finished object.
-
-Request, single PUT:
-
-```json
-{ "key": "direct-uploads/dchen656/8Yb.../run_2026-11-08.mcap", "hidden": false }
-```
-
-Request, multipart:
+Request:
 
 ```json
 {
@@ -152,7 +105,7 @@ number, so the client can send them in any order.
 Response:
 
 ```json
-{ "message": null, "data": { "jobId": "job_1762123456789012345" } }
+{ "jobId": "job_1762123456789012345" }
 ```
 
 Finalize is idempotent while the server process is running. A retry returns the job ID
@@ -160,33 +113,25 @@ from the first successful call instead of processing the file twice. A retry aft
 assembled the parts skips assembly, even after a server restart, because the server
 sees the assembled object in the bucket.
 
-## Client flow
+### `GET /uploads/limits`
 
-### Single PUT
+Reports the file processor capacity. The response uses the usual envelope:
 
-```js
-async function uploadWithPresignedPut(file) {
-  const presign = await api("/uploads/presign", {
-    fileName: file.name,
-    contentType: file.type || "application/octet-stream",
-    size: file.size,
-  });
-
-  const response = await fetch(presign.uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": file.type || "application/octet-stream" },
-    body: file,
-  });
-  if (!response.ok) throw new Error(`S3 upload failed: ${response.status}`);
-
-  return api("/uploads/finalize", { key: presign.key });
+```json
+{
+  "message": null,
+  "data": {
+    "current_file_size": 0,
+    "max_file_size": 21474836480,
+    "available_file_size": 21474836480
+  }
 }
 ```
 
-### Multipart
+## Client flow
 
 ```js
-async function uploadMultipart(file, partSize = 64 * 1024 * 1024, concurrency = 4) {
+async function uploadMultipart(file, concurrency = 4) {
   const contentType = file.type || "application/octet-stream";
   const init = await api("/uploads/initiate", {
     fileName: file.name,
@@ -194,29 +139,16 @@ async function uploadMultipart(file, partSize = 64 * 1024 * 1024, concurrency = 
     size: file.size,
   });
 
-  const totalParts = Math.ceil(file.size / partSize);
-  const partNumbers = Array.from({ length: totalParts }, (_, index) => index + 1);
-  const urls = new Map();
-
-  for (let index = 0; index < partNumbers.length; index += 100) {
-    const batch = partNumbers.slice(index, index + 100);
-    const { parts } = await api("/uploads/parts", {
-      key: init.key,
-      uploadId: init.uploadId,
-      partNumbers: batch,
-    });
-    for (const part of parts) urls.set(part.partNumber, part.url);
-  }
-
-  const completed = new Array(totalParts);
+  const { partSize, parts } = init;
+  const completed = new Array(parts.length);
   let next = 0;
 
   async function worker() {
-    while (next < partNumbers.length) {
-      const partNumber = partNumbers[next++];
+    while (next < parts.length) {
+      const { partNumber, url } = parts[next++];
       const start = (partNumber - 1) * partSize;
       const blob = file.slice(start, Math.min(start + partSize, file.size));
-      const response = await fetch(urls.get(partNumber), { method: "PUT", body: blob });
+      const response = await fetch(url, { method: "PUT", body: blob });
       if (!response.ok) throw new Error(`part ${partNumber} failed: ${response.status}`);
       completed[partNumber - 1] = {
         partNumber,
@@ -261,21 +193,22 @@ aws s3api put-bucket-cors --bucket hytech-runs --cors-configuration file://cors.
 
 For MinIO, save the same JSON and run `mc cors set <alias>/<bucket> cors.json`.
 
-The presigned URL points at `AWS_S3_ENDPOINT` when `USING_NON_AWS_COMPATIBLE_STORE` is
-set. That endpoint must be reachable from the browser, not only from the server.
+Part URLs point at `AWS_S3_ENDPOINT` when `USING_NON_AWS_COMPATIBLE_STORE` is set. That
+endpoint must be reachable from the browser, not only from the server.
 
 ## Failure modes
 
 | Status | Meaning |
 | --- | --- |
+| 400 | Invalid file name/type/size, malformed body, or a finalize request with a missing, mismatched, or invalid upload ID or part list |
 | 401 | No valid session cookie |
-| 400 | Invalid file name/type/size, bad part number, missing or mismatched upload ID, or malformed body |
 | 404 | Unknown upload (expired, never issued, or owned by another user), or the uploaded object is not in the bucket |
 | 409 | Finalize already in progress, a multipart upload has not been assembled, or its session expired |
+| 500 | S3 could not start or sign the upload, or the upload could not be assembled |
 | 503 | The server has no room to stage more files; retry after uploads finish |
 
-Upload sessions are kept in memory for 24 hours. A single `PUT` survives a server
-restart because the server can rebuild the session from the key. An assembled
-multipart upload also survives, because the server sees the object in the bucket. An
+Upload sessions are kept in memory for 24 hours. The part URLs stay valid for the same
+24 hours. An assembled multipart upload survives a server restart because the
+server can rebuild the session from the key and sees the object in the bucket. An
 in-progress multipart upload does not: its upload ID is lost with the process, so the
 client has to start that upload again.

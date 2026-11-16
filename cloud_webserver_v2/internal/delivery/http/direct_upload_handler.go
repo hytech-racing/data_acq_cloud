@@ -23,17 +23,14 @@ import (
 // Direct uploads keep file bytes away from this server. The client asks for signed
 // URLs, uploads to S3 itself, then asks this server to process the finished object.
 const (
-	// S3 rejects a single PUT larger than 5 GiB; larger files use the multipart endpoints.
-	maxSinglePutSize = int64(5 * 1024 * 1024 * 1024)
-
 	maxPartNumber = 10000
 
-	// Signing thousands of URLs at once burns CPU, so clients ask in batches.
-	maxPresignedPartsPerRequest = 100
+	// At 64 MiB the 20 GiB file cap yields at most 320 parts, far below S3's limit
+	// of 10,000, and every part except the last clears S3's 5 MiB minimum.
+	uploadPartSize int64 = 64 << 20
 
-	// Signed URL lifetimes. A transfer may outlive the window once it has started.
-	presignExpiry      = 5 * time.Minute
-	uploadPartExpiry   = 15 * time.Minute
+	// Part URLs are issued at initiate, so they must stay valid for the whole
+	// transfer and expire with the session.
 	directUploadTTL    = 24 * time.Hour
 	directUploadPrefix = "direct-uploads"
 
@@ -52,12 +49,6 @@ type presignUploadRequest struct {
 	FileName    string `json:"fileName"`
 	ContentType string `json:"contentType"`
 	Size        int64  `json:"size"`
-}
-
-type presignPartsRequest struct {
-	Key         string  `json:"key"`
-	UploadID    string  `json:"uploadId"`
-	PartNumbers []int32 `json:"partNumbers"`
 }
 
 type completedPartRequest struct {
@@ -213,6 +204,20 @@ func (h *uploadHandler) InitiateMultipartUpload(w http.ResponseWriter, r *http.R
 			return nil, NewHandlerError("failed to prepare upload", http.StatusInternalServerError)
 		}
 
+		count := uploadPartCount(request.Size)
+		parts := make([]uploadPartURL, 0, count)
+		for partNumber := int32(1); partNumber <= count; partNumber++ {
+			partURL, err := h.s3Repository.PresignUploadPart(r.Context(), key, uploadID, partNumber, directUploadTTL)
+			if err != nil {
+				log.Printf("failed to presign part %d: %v", partNumber, err)
+				if abortErr := h.abortMultipart(r.Context(), directUploadSession{Key: key, UploadID: uploadID}); abortErr != nil {
+					log.Printf("failed to abort multipart upload: %v", abortErr)
+				}
+				return nil, NewHandlerError("failed to prepare upload", http.StatusInternalServerError)
+			}
+			parts = append(parts, uploadPartURL{PartNumber: partNumber, URL: partURL})
+		}
+
 		h.directUploads.add(&directUploadSession{
 			Key:       key,
 			UploadID:  uploadID,
@@ -223,37 +228,12 @@ func (h *uploadHandler) InitiateMultipartUpload(w http.ResponseWriter, r *http.R
 		})
 
 		w.Header().Set("Cache-Control", "no-store")
-		return map[string]any{"uploadId": uploadID, "key": key}, nil
-	})
-}
-
-// PresignUploadParts signs a batch of part URLs for an in-progress multipart upload.
-func (h *uploadHandler) PresignUploadParts(w http.ResponseWriter, r *http.Request) *HandlerError {
-	var request presignPartsRequest
-	return h.handleJSON(w, r, &request, func(owner string) (any, *HandlerError) {
-		h.pruneExpiredUploads(r.Context())
-
-		partNumbers, handlerErr := validatePartNumbers(request.PartNumbers, maxPresignedPartsPerRequest)
-		if handlerErr != nil {
-			return nil, handlerErr
-		}
-		session, handlerErr := h.multipartSession(request.Key, owner, request.UploadID)
-		if handlerErr != nil {
-			return nil, handlerErr
-		}
-
-		parts := make([]uploadPartURL, 0, len(partNumbers))
-		for _, partNumber := range partNumbers {
-			partURL, err := h.s3Repository.PresignUploadPart(r.Context(), session.Key, session.UploadID, partNumber, uploadPartExpiry)
-			if err != nil {
-				log.Printf("failed to presign part %d: %v", partNumber, err)
-				return nil, NewHandlerError("failed to prepare upload", http.StatusInternalServerError)
-			}
-			parts = append(parts, uploadPartURL{PartNumber: partNumber, URL: partURL})
-		}
-
-		w.Header().Set("Cache-Control", "no-store")
-		return map[string]any{"parts": parts}, nil
+		return map[string]any{
+			"uploadId": uploadID,
+			"key":      key,
+			"partSize": uploadPartSize,
+			"parts":    parts,
+		}, nil
 	})
 }
 
@@ -489,35 +469,8 @@ func (h *uploadHandler) newUploadKey(owner, fileName string) (string, *HandlerEr
 	return path.Join(directUploadPrefix, owner, base64.RawURLEncoding.EncodeToString(id), fileName), nil
 }
 
-func (h *uploadHandler) multipartSession(key, owner, uploadID string) (directUploadSession, *HandlerError) {
-	session, err := h.directUploads.lookup(key, owner)
-	if err != nil {
-		return directUploadSession{}, NewHandlerError("unknown upload", http.StatusNotFound)
-	}
-	if uploadID == "" || session.UploadID != uploadID {
-		return directUploadSession{}, NewHandlerError("upload id does not match the upload", http.StatusBadRequest)
-	}
-	return session, nil
-}
-
-func validatePartNumbers(numbers []int32, limit int) ([]int32, *HandlerError) {
-	if len(numbers) == 0 {
-		return nil, NewHandlerError("partNumbers must not be empty", http.StatusBadRequest)
-	}
-	if len(numbers) > limit {
-		return nil, NewHandlerError(fmt.Sprintf("request at most %d part URLs at a time", limit), http.StatusBadRequest)
-	}
-
-	sort.Slice(numbers, func(i, j int) bool { return numbers[i] < numbers[j] })
-	for i, number := range numbers {
-		if number < 1 || number > maxPartNumber {
-			return nil, NewHandlerError(fmt.Sprintf("part numbers must be between 1 and %d", maxPartNumber), http.StatusBadRequest)
-		}
-		if i > 0 && number == numbers[i-1] {
-			return nil, NewHandlerError(fmt.Sprintf("duplicate part number %d", number), http.StatusBadRequest)
-		}
-	}
-	return numbers, nil
+func uploadPartCount(size int64) int32 {
+	return int32((size + uploadPartSize - 1) / uploadPartSize)
 }
 
 // sanitizeUploadFileName keeps the key confined to the server prefix and the type
