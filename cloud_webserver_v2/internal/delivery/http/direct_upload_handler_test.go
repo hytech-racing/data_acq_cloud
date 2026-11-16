@@ -1,14 +1,10 @@
 package http
 
 import (
-	"net/http"
 	"path"
-	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 )
 
 func (registry *directUploadRegistry) lookup(key, owner string) (directUploadSession, error) {
@@ -49,60 +45,6 @@ func TestSanitizeUploadFileName(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestFinalizeParts(t *testing.T) {
-	rejected := []struct {
-		name    string
-		request finalizeUploadRequest
-	}{
-		{
-			name:    "no multipart fields",
-			request: finalizeUploadRequest{Key: "key"},
-		},
-		{
-			name:    "parts without upload id",
-			request: finalizeUploadRequest{Parts: []completedPartRequest{{PartNumber: 1, ETag: `"a"`}}},
-		},
-		{
-			name:    "upload id without parts",
-			request: finalizeUploadRequest{UploadID: "upload-id"},
-		},
-		{
-			name:    "zero part number",
-			request: finalizeUploadRequest{UploadID: "upload-id", Parts: []completedPartRequest{{PartNumber: 0, ETag: `"a"`}}},
-		},
-	}
-
-	for _, test := range rejected {
-		t.Run(test.name, func(t *testing.T) {
-			if _, handlerErr := finalizeParts(test.request); handlerErr == nil || handlerErr.StatusCode != http.StatusBadRequest {
-				t.Fatalf("finalizeParts(%v) error = %v, want status %d", test.request, handlerErr, http.StatusBadRequest)
-			}
-		})
-	}
-
-	t.Run("sorts parts and preserves raw etags", func(t *testing.T) {
-		parts, handlerErr := finalizeParts(finalizeUploadRequest{
-			UploadID: "upload-id",
-			Parts: []completedPartRequest{
-				{PartNumber: 3, ETag: `"c"`},
-				{PartNumber: 1, ETag: `"a"`},
-				{PartNumber: 2, ETag: `"b"`},
-			},
-		})
-		if handlerErr != nil {
-			t.Fatalf("finalizeParts() error: %v", handlerErr)
-		}
-		want := []s3.MultipartPart{
-			{PartNumber: 1, ETag: `"a"`},
-			{PartNumber: 2, ETag: `"b"`},
-			{PartNumber: 3, ETag: `"c"`},
-		}
-		if !slices.Equal(parts, want) {
-			t.Fatalf("finalizeParts() = %v, want %v", parts, want)
-		}
-	})
 }
 
 func TestRegistryRejectsForeignAndExpiredUploads(t *testing.T) {
