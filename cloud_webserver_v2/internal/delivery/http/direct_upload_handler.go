@@ -142,18 +142,6 @@ func (registry *directUploadRegistry) claimFinalize(key, owner string) (directUp
 	return *session, "", nil
 }
 
-// finishFinalize clears the in-progress marker and records the job on success. A
-// retried finalize then returns the same job instead of processing the file twice.
-func (registry *directUploadRegistry) finishFinalize(key, jobID string) {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-
-	if session, ok := registry.sessions[key]; ok {
-		session.Finalizing = false
-		session.JobID = jobID
-	}
-}
-
 // take removes and returns a session so the caller can abort its S3 state.
 func (registry *directUploadRegistry) take(key, owner string) (directUploadSession, error) {
 	registry.mu.Lock()
@@ -182,29 +170,34 @@ func (registry *directUploadRegistry) takeExpired(now time.Time) []directUploadS
 	return expired
 }
 
-// InitiateMultipartUpload starts a multipart upload for a file too large or too
-// unreliable for a single PUT.
 func (h *uploadHandler) InitiateMultipartUpload(w http.ResponseWriter, r *http.Request) *HandlerError {
 	var request presignUploadRequest
 	return h.handleJSON(w, r, &request, func(owner string) (any, *HandlerError) {
 		h.pruneExpiredUploads(r.Context())
 
-		fileName, contentType, handlerErr := h.validateStart(request, 0)
+		fileName, handlerErr := sanitizeUploadFileName(request.FileName)
 		if handlerErr != nil {
 			return nil, handlerErr
 		}
-
+		if handlerErr := h.validateUploadSize(request.Size); handlerErr != nil {
+			return nil, handlerErr
+		}
+		contentType := strings.TrimSpace(request.ContentType)
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
 		key, handlerErr := h.newUploadKey(owner, fileName)
 		if handlerErr != nil {
 			return nil, handlerErr
 		}
+
 		uploadID, err := h.s3Repository.CreateMultipartUpload(r.Context(), key, contentType)
 		if err != nil {
 			log.Printf("failed to create multipart upload: %v", err)
 			return nil, NewHandlerError("failed to prepare upload", http.StatusInternalServerError)
 		}
 
-		count := uploadPartCount(request.Size)
+		count := int32((request.Size + uploadPartSize - 1) / uploadPartSize)
 		parts := make([]uploadPartURL, 0, count)
 		for partNumber := int32(1); partNumber <= count; partNumber++ {
 			partURL, err := h.s3Repository.PresignUploadPart(r.Context(), key, uploadID, partNumber, directUploadTTL)
@@ -237,7 +230,6 @@ func (h *uploadHandler) InitiateMultipartUpload(w http.ResponseWriter, r *http.R
 	})
 }
 
-// AbortMultipartUpload discards an unfinished multipart upload.
 func (h *uploadHandler) AbortMultipartUpload(w http.ResponseWriter, r *http.Request) *HandlerError {
 	var request abortUploadRequest
 	return h.handleJSON(w, r, &request, func(owner string) (any, *HandlerError) {
@@ -309,7 +301,14 @@ func (h *uploadHandler) FinalizeUpload(w http.ResponseWriter, r *http.Request) *
 
 		jobID := ""
 		// Reset the in-progress marker on failure; on success the job ID makes a retry a no-op.
-		defer func() { h.directUploads.finishFinalize(request.Key, jobID) }()
+		defer func() { 
+			h.directUploads.mu.Lock()
+			if session, ok := h.directUploads.sessions[request.Key]; ok {
+				session.Finalizing = false
+				session.JobID = jobID
+			}
+			h.directUploads.mu.Unlock()
+		}()
 
 		if parts != nil && live {
 			if session.UploadID == "" {
@@ -439,27 +438,6 @@ func (h *uploadHandler) handleJSON(w http.ResponseWriter, r *http.Request, targe
 	return nil
 }
 
-func (h *uploadHandler) validateStart(request presignUploadRequest, maxSize int64) (string, string, *HandlerError) {
-	fileName, handlerErr := sanitizeUploadFileName(request.FileName)
-	if handlerErr != nil {
-		return "", "", handlerErr
-	}
-	if handlerErr := h.validateUploadSize(request.Size); handlerErr != nil {
-		return "", "", handlerErr
-	}
-	contentType := strings.TrimSpace(request.ContentType)
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	if maxSize > 0 && request.Size > maxSize {
-		return "", "", NewHandlerError(
-			fmt.Sprintf("files larger than %d bytes must use the multipart upload endpoints", maxSize),
-			http.StatusBadRequest,
-		)
-	}
-	return fileName, contentType, nil
-}
-
 func (h *uploadHandler) newUploadKey(owner, fileName string) (string, *HandlerError) {
 	id := make([]byte, 16)
 	if _, err := rand.Read(id); err != nil {
@@ -469,12 +447,6 @@ func (h *uploadHandler) newUploadKey(owner, fileName string) (string, *HandlerEr
 	return path.Join(directUploadPrefix, owner, base64.RawURLEncoding.EncodeToString(id), fileName), nil
 }
 
-func uploadPartCount(size int64) int32 {
-	return int32((size + uploadPartSize - 1) / uploadPartSize)
-}
-
-// sanitizeUploadFileName keeps the key confined to the server prefix and the type
-// confined to what the processing pipeline understands.
 func sanitizeUploadFileName(raw string) (string, *HandlerError) {
 	fileName := strings.TrimSpace(raw)
 	switch {
@@ -492,8 +464,6 @@ func sanitizeUploadFileName(raw string) (string, *HandlerError) {
 	return fileName, nil
 }
 
-// recoverDirectUploadSession rebuilds a session after a restart. It only accepts keys
-// in the caller's own namespace.
 func recoverDirectUploadSession(key, owner string) (directUploadSession, bool) {
 	rest, ok := strings.CutPrefix(key, path.Join(directUploadPrefix, owner)+"/")
 	if !ok {

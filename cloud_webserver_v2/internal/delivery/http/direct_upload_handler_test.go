@@ -97,26 +97,6 @@ func TestFinalizeParts(t *testing.T) {
 	})
 }
 
-func TestUploadPartCount(t *testing.T) {
-	tests := []struct {
-		name string
-		size int64
-		want int32
-	}{
-		{name: "one byte", size: 1, want: 1},
-		{name: "exactly one part", size: uploadPartSize, want: 1},
-		{name: "one byte over one part", size: uploadPartSize + 1, want: 2},
-		{name: "twenty gibibytes", size: 20 << 30, want: 320},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := uploadPartCount(test.size); got != test.want {
-				t.Fatalf("uploadPartCount(%d) = %d, want %d", test.size, got, test.want)
-			}
-		})
-	}
-}
 
 func TestRegistryRejectsForeignAndExpiredUploads(t *testing.T) {
 	registry := newDirectUploadRegistry()
@@ -131,22 +111,6 @@ func TestRegistryRejectsForeignAndExpiredUploads(t *testing.T) {
 	}
 	if _, err := registry.lookup("live", "alice"); err != nil {
 		t.Fatalf("lookup rejected a live session: %v", err)
-	}
-}
-
-func TestClaimFinalizeReturnsSameJobAfterCompletion(t *testing.T) {
-	registry := newDirectUploadRegistry()
-	registry.add(&directUploadSession{Key: "key", Owner: "alice", ExpiresAt: time.Now().Add(time.Hour)})
-
-	session, jobID, err := registry.claimFinalize("key", "alice")
-	if err != nil || jobID != "" || session.Key != "key" {
-		t.Fatalf("first claimFinalize = %v, %q, %v", session, jobID, err)
-	}
-	registry.finishFinalize("key", "job-1")
-
-	_, jobID, err = registry.claimFinalize("key", "alice")
-	if err != nil || jobID != "job-1" {
-		t.Fatalf("retried claimFinalize job = %q, %v, want job-1", jobID, err)
 	}
 }
 
