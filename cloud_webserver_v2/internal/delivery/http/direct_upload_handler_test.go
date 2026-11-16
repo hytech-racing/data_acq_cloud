@@ -11,6 +11,17 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 )
 
+func (registry *directUploadRegistry) lookup(key, owner string) (directUploadSession, error) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+
+	session, err := registry.session(key, owner)
+	if err != nil {
+		return directUploadSession{}, err
+	}
+	return *session, nil
+}
+
 func TestSanitizeUploadFileName(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -96,7 +107,6 @@ func TestFinalizeParts(t *testing.T) {
 		}
 	})
 }
-
 
 func TestRegistryRejectsForeignAndExpiredUploads(t *testing.T) {
 	registry := newDirectUploadRegistry()

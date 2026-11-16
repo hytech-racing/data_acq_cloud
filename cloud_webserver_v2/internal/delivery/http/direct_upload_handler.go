@@ -110,18 +110,6 @@ func (registry *directUploadRegistry) session(key, owner string) (*directUploadS
 	return session, nil
 }
 
-// lookup returns a copy so handlers can talk to S3 without holding the lock.
-func (registry *directUploadRegistry) lookup(key, owner string) (directUploadSession, error) {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-
-	session, err := registry.session(key, owner)
-	if err != nil {
-		return directUploadSession{}, err
-	}
-	return *session, nil
-}
-
 // claimFinalize reserves the upload for finalization. A retried finalize gets the
 // existing job ID, so it never processes the same file twice.
 func (registry *directUploadRegistry) claimFinalize(key, owner string) (directUploadSession, string, error) {

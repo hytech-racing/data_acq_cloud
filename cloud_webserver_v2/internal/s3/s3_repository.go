@@ -101,28 +101,7 @@ func (s *S3Repository) GetSignedUrl(ctx context.Context, bucket string, objectPa
 	return request.URL
 }
 
-// PresignPutObject returns a URL the client can PUT a single object to. The request is
-// signed server-side, so the client never receives AWS credentials. ContentType is part
-// of the signature, which stops a client from uploading a different kind of file than
-// the one the server validated.
-func (s *S3Repository) PresignPutObject(ctx context.Context, objectKey string, contentType string, expires time.Duration) (string, error) {
-	request, err := s.s3_session.presignClient.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(s.s3_session.bucket),
-		Key:         aws.String(objectKey),
-		ContentType: aws.String(contentType),
-	}, func(opts *s3.PresignOptions) {
-		opts.Expires = expires
-	})
-	if err != nil {
-		return "", fmt.Errorf("couldn't presign put for %v:%v: %w", s.s3_session.bucket, objectKey, err)
-	}
-
-	return request.URL, nil
-}
-
-// CreateMultipartUpload starts a multipart upload and returns its upload ID. Multipart
-// uploads are what lift the 5GB limit of a single presigned PUT: the client uploads
-// independent parts and can retry only the parts that fail.
+// CreateMultipartUpload starts a multipart upload and returns its upload ID.
 func (s *S3Repository) CreateMultipartUpload(ctx context.Context, objectKey string, contentType string) (string, error) {
 	output, err := s.s3_session.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket:      aws.String(s.s3_session.bucket),
@@ -153,8 +132,6 @@ func (s *S3Repository) PresignUploadPart(ctx context.Context, objectKey string, 
 	return request.URL, nil
 }
 
-// CompleteMultipartUpload tells S3 to assemble the uploaded parts into one object.
-// Parts must be ordered by part number.
 func (s *S3Repository) CompleteMultipartUpload(ctx context.Context, objectKey string, uploadID string, parts []MultipartPart) error {
 	completedParts := make([]types.CompletedPart, len(parts))
 	for i, part := range parts {
@@ -179,8 +156,6 @@ func (s *S3Repository) CompleteMultipartUpload(ctx context.Context, objectKey st
 	return nil
 }
 
-// AbortMultipartUpload discards the parts that were uploaded for an unfinished
-// multipart upload so they stop costing storage.
 func (s *S3Repository) AbortMultipartUpload(ctx context.Context, objectKey string, uploadID string) error {
 	_, err := s.s3_session.client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
 		Bucket:   aws.String(s.s3_session.bucket),
