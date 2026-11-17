@@ -28,7 +28,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/foxglove/mcap/go/mcap"
@@ -74,15 +73,13 @@ func BenchmarkMCAPConvert(b *testing.B) {
 			FilePath: path,
 			FileDir:  outDir,
 		}
-		// Same naming as ProcessFileJob
-		genericFileName := strings.Split(job.Filename, ".")[0]
 		subscriberMapping := map[string]messaging.SubscriberFunc{
 			messaging.HDF5: messaging.CreateRawHDF5File,
 		}
 
 		var h5Size int64
 		for i := 0; i < b.N; i++ {
-			results, err := (&PostProcessMCAPUploadJob{}).publishMCAPMessages(context.Background(), job, genericFileName, subscriberMapping)
+			results, err := (&PostProcessMCAPUploadJob{}).publishMCAPMessages(context.Background(), job, job.ID, subscriberMapping)
 			if err != nil {
 				b.Fatal(err)
 			}
