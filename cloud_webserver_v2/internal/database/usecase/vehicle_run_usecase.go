@@ -43,16 +43,12 @@ func (uc *VehicleRunUseCase) FindVehicleRunByMCAPFileHash(ctx context.Context, f
 	return result, nil
 }
 
-func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters *models.VehicleRunModelFilters) ([]models.VehicleRunModel, error) {
+func buildFilterBSON(filters *models.VehicleRunModelFilters, includeHidden bool) bson.M {
 	bson_filters_m := bson.M{}
 	bson_or := bson.A{}
 
 	if filters.ID != nil {
-		id, err := primitive.ObjectIDFromHex(filters.ID.Hex())
-		if err != nil {
-			return nil, err
-		}
-		bson_filters_m["id"] = id
+		bson_filters_m["id"] = *filters.ID
 	}
 
 	if filters.BeforeDate != nil || filters.AfterDate != nil {
@@ -107,10 +103,40 @@ func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters
 		bson_filters_m["$or"] = bson_or
 	}
 
-	// Execute the query
-	result, err := uc.vechicleRunRepo.GetWithVehicleFilters(context.TODO(), &bson_filters_m)
+	if !includeHidden {
+		bson_filters_m["hidden"] = bson.M{"$ne": true}
+	}
+
+	return bson_filters_m
+}
+
+func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters *models.VehicleRunModelFilters, includeHidden bool) ([]models.VehicleRunModel, error) {
+	bson_filters_m := buildFilterBSON(filters, includeHidden)
+
+	result, err := uc.vechicleRunRepo.GetWithVehicleFilters(ctx, &bson_filters_m)
 	if err != nil {
 		return nil, err
+	}
+
+	return result, nil
+}
+
+func (uc *VehicleRunUseCase) GetVehicleRunByFiltersPage(ctx context.Context, filters *models.VehicleRunModelFilters, includeHidden bool, page models.PageRequest) (models.VehicleRunPage, error) {
+	bson_filters_m := buildFilterBSON(filters, includeHidden)
+
+	runs, err := uc.vechicleRunRepo.GetVehicleRunPage(ctx, &bson_filters_m, page)
+	if err != nil {
+		return models.VehicleRunPage{}, err
+	}
+
+	result := models.VehicleRunPage{Runs: runs}
+	if len(runs) > page.Limit() {
+		result.Runs = runs[:page.Limit()]
+		last := result.Runs[len(result.Runs)-1]
+		result.Next = &models.PageCursor{Date: last.Date, ID: last.Id}
+	}
+	if result.Runs == nil {
+		result.Runs = make([]models.VehicleRunModel, 0)
 	}
 
 	return result, nil
