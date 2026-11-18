@@ -3,6 +3,7 @@ package background
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -209,23 +210,29 @@ func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 	return currentSize+size <= fp.maxTotalSize
 }
 
-func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob) (string, error) {
+func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob) (*float64, string, error) {
 	file, err := os.Create(job.FilePath)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	defer file.Close()
 
 	downloaded, err := fp.s3Repository.DownloadObject(ctx, job.SourceS3Key, file)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 
 	if downloaded != job.Size {
-		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, job.Size)
+		return nil, "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, job.Size)
 	}
 
-	return utils.CreateFileHash(file)
+	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(file, 0, job.Size))
+	if err != nil {
+		log.Printf("could not read MCAP duration for %v: %v", job.FilePath, err)
+	}
+
+	fileHash, err := utils.CreateFileHash(file)
+	return durationSeconds, fileHash, err
 }
 
 // finishJob removes the job's staged file and releases the space it occupied. It runs
