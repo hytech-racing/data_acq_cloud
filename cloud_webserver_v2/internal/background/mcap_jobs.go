@@ -48,7 +48,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	fp.broadcastFileUploadStart(job)
 	defer fp.finishJob(job)
 
-	fileHash, err := fp.downloadAndStageMCAP(ctx, job)
+	durationSeconds, fileHash, err := fp.downloadAndStageMCAP(ctx, job)
 	if err != nil {
 		return fmt.Errorf("failed to download directly uploaded mcap %v: %w", job.Filename, err)
 	}
@@ -64,17 +64,6 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 
 	mcapFileName := job.Filename
 	mcapObjectFilePath := job.SourceS3Key
-
-	mcapFile, err := os.Open(job.FilePath)
-	if err != nil {
-		return fmt.Errorf("could not open staged mcap file %v: %w", job.FilePath, err)
-	}
-	defer mcapFile.Close()
-
-	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(mcapFile, 0, job.Size))
-	if err != nil {
-		log.Printf("could not read MCAP duration for %v: %v", mcapFileName, err)
-	}
 
 	// The vehicle run is created upfront with only the MCAP file attached to it. Converted
 	// files (the HDF5 file and its plots) are attached later, but only when the conversion

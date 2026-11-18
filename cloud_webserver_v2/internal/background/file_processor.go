@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -275,23 +276,33 @@ func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 	return currentSize+size <= fp.maxTotalSize
 }
 
-func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob) (string, error) {
-	if hash, ok := stageArchivedCopy(job); ok {
-		return hash, nil
+func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob) (*float64, string, error) {
+	if hash, durationSeconds, ok := stageArchivedCopy(job); ok {
+		return durationSeconds, hash, nil
 	}
 
 	file, err := os.Create(job.FilePath)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	defer file.Close()
 
 	downloaded, err := fp.s3Repository.DownloadObject(ctx, job.SourceS3Key, file)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 
-	return hashStagedFile(file, downloaded, job.Size)
+	fileHash, err := hashStagedFile(file, downloaded, job.Size)
+	if err != nil {
+		return nil, "", err
+	}
+
+	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(file, 0, job.Size))
+	if err != nil {
+		log.Printf("could not read MCAP duration for %v: %v", job.FilePath, err)
+	}
+
+	return durationSeconds, fileHash, nil
 }
 
 // hashStagedFile returns the SHA-256 of a staged file and rejects a download whose byte
@@ -304,32 +315,37 @@ func hashStagedFile(file *os.File, downloaded, expected int64) (string, error) {
 }
 
 // stageArchivedCopy points the job at the MCAP a previous conversion archived in the run
-// metadata volume and returns its hash. Only a copy with exactly the expected size is
-// reused, so a partially written archive falls back to the download.
-func stageArchivedCopy(job *FileJob) (string, bool) {
+// metadata volume, returning its hash and duration. Only a copy with exactly the expected
+// size is reused, so a partially written archive falls back to the download.
+func stageArchivedCopy(job *FileJob) (string, *float64, bool) {
 	localPath := filepath.Join(RUN_METADATA_DIR, job.SourceS3Key)
 
 	info, err := os.Stat(localPath)
 	if err != nil || info.Size() != job.Size {
-		return "", false
+		return "", nil, false
 	}
 
 	file, err := os.Open(localPath)
 	if err != nil {
-		return "", false
+		return "", nil, false
 	}
 	defer file.Close()
 
 	hash, err := utils.CreateFileHash(file)
 	if err != nil {
-		return "", false
+		return "", nil, false
+	}
+
+	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(file, 0, job.Size))
+	if err != nil {
+		log.Printf("could not read MCAP duration for %v: %v", localPath, err)
 	}
 
 	job.FilePath = localPath
 	job.ReusedLocalCopy = true
 	log.Printf("reusing archived copy %v for job %v", localPath, job.ID)
 
-	return hash, true
+	return hash, durationSeconds, true
 }
 
 // finishJob removes the job's staged file and releases the space it occupied. It runs
