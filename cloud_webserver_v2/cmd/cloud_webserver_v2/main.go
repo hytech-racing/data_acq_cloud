@@ -183,7 +183,7 @@ func main() {
 
 	authHandler.RegisterNonCallbackEndpoints()
 	handler.NewMcapHandler(router, s3Repository, dbClient, fileProcessor, &fileUploadMiddleware, authHandler)
-	handler.NewUploadHandler(router, dbClient, fileProcessor)
+	handler.NewUploadHandler(router, dbClient, fileProcessor, s3Repository, authHandler)
 	handler.NewDocumentationHandler(router, s3Repository)
 	handler.NewCarMetricsHandler(router, s3Repository, dbClient)
 
