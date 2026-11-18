@@ -65,7 +65,13 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	mcapFileName := job.Filename
 	mcapObjectFilePath := job.SourceS3Key
 
-	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(mcapFileS3Reader, 0, job.Size))
+	mcapFile, err := os.Open(job.FilePath)
+	if err != nil {
+		return fmt.Errorf("could not open staged mcap file %v: %w", job.FilePath, err)
+	}
+	defer mcapFile.Close()
+
+	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(mcapFile, 0, job.Size))
 	if err != nil {
 		log.Printf("could not read MCAP duration for %v: %v", mcapFileName, err)
 	}

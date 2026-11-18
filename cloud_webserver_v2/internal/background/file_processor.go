@@ -291,10 +291,15 @@ func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob)
 		return "", err
 	}
 
-	if downloaded != job.Size {
-		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, job.Size)
-	}
+	return hashStagedFile(file, downloaded, job.Size)
+}
 
+// hashStagedFile returns the SHA-256 of a staged file and rejects a download whose byte
+// count does not match the size the client reported.
+func hashStagedFile(file *os.File, downloaded, expected int64) (string, error) {
+	if downloaded != expected {
+		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, expected)
+	}
 	return utils.CreateFileHash(file)
 }
 
