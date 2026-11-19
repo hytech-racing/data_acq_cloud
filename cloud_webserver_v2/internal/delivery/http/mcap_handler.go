@@ -37,7 +37,9 @@ type mcapHandler struct {
 	fileProcessor  *background.FileProcessor
 	authHandler    *AuthHandler
 	mcapFetchCount int
-	lastResetTime  time.Time       
+	lastResetTime  time.Time
+	// Gives the handler its own lock
+	rateLimitMu	   sync.Mutex       
 }
 
 func NewMcapHandler(
@@ -72,6 +74,10 @@ func NewMcapHandler(
 }
 
 func (h *mcapHandler) applyRateLimit(w http.ResponseWriter) bool {
+	// Only one function at a time can check and update the counter
+	h.rateLimitMu.Lock()
+	// Unlock defer automatically when the function returns
+	defer h.rateLimitMu.Unlock()
 	if time.Now().Sub(h.lastResetTime).Abs().Seconds() > 60 {
 		h.lastResetTime = time.Now()
 		h.mcapFetchCount = 0
