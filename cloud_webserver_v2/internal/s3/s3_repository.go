@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -9,8 +10,20 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
+	transfermanagertypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+// ErrObjectNotFound is returned when an object does not exist in the bucket.
+var ErrObjectNotFound = errors.New("s3 object not found")
+
+// MultipartPart identifies a single part of a multipart upload. The ETag is the value
+// S3 returned to the client when the part was uploaded directly to the bucket.
+type MultipartPart struct {
+	PartNumber int32
+	ETag       string
+}
 
 // S3Repository allows for the server to interface with S3
 type S3Repository struct {
@@ -86,6 +99,115 @@ func (s *S3Repository) GetSignedUrl(ctx context.Context, bucket string, objectPa
 	}
 
 	return request.URL
+}
+
+// CreateMultipartUpload starts a multipart upload and returns its upload ID.
+func (s *S3Repository) CreateMultipartUpload(ctx context.Context, objectKey string, contentType string) (string, error) {
+	output, err := s.s3_session.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
+		Bucket:      aws.String(s.s3_session.bucket),
+		Key:         aws.String(objectKey),
+		ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		return "", fmt.Errorf("couldn't create multipart upload for %v:%v: %w", s.s3_session.bucket, objectKey, err)
+	}
+
+	return aws.ToString(output.UploadId), nil
+}
+
+// PresignUploadPart returns a URL for one part of an in-progress multipart upload.
+func (s *S3Repository) PresignUploadPart(ctx context.Context, objectKey string, uploadID string, partNumber int32, expires time.Duration) (string, error) {
+	request, err := s.s3_session.presignClient.PresignUploadPart(ctx, &s3.UploadPartInput{
+		Bucket:     aws.String(s.s3_session.bucket),
+		Key:        aws.String(objectKey),
+		UploadId:   aws.String(uploadID),
+		PartNumber: aws.Int32(partNumber),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expires
+	})
+	if err != nil {
+		return "", fmt.Errorf("couldn't presign part %d of %v:%v: %w", partNumber, s.s3_session.bucket, objectKey, err)
+	}
+
+	return request.URL, nil
+}
+
+func (s *S3Repository) CompleteMultipartUpload(ctx context.Context, objectKey string, uploadID string, parts []MultipartPart) error {
+	completedParts := make([]types.CompletedPart, len(parts))
+	for i, part := range parts {
+		completedParts[i] = types.CompletedPart{
+			ETag:       aws.String(part.ETag),
+			PartNumber: aws.Int32(part.PartNumber),
+		}
+	}
+
+	_, err := s.s3_session.client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
+		Bucket:   aws.String(s.s3_session.bucket),
+		Key:      aws.String(objectKey),
+		UploadId: aws.String(uploadID),
+		MultipartUpload: &types.CompletedMultipartUpload{
+			Parts: completedParts,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("couldn't complete multipart upload for %v:%v: %w", s.s3_session.bucket, objectKey, err)
+	}
+
+	return nil
+}
+
+func (s *S3Repository) AbortMultipartUpload(ctx context.Context, objectKey string, uploadID string) error {
+	_, err := s.s3_session.client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		Bucket:   aws.String(s.s3_session.bucket),
+		Key:      aws.String(objectKey),
+		UploadId: aws.String(uploadID),
+	})
+	if err != nil {
+		return fmt.Errorf("couldn't abort multipart upload for %v:%v: %w", s.s3_session.bucket, objectKey, err)
+	}
+
+	return nil
+}
+
+// HeadObject returns the size in bytes of an object, or ErrObjectNotFound when it does
+// not exist. It is used to confirm that a direct upload actually landed before the file
+// is handed to the file processor.
+func (s *S3Repository) HeadObject(ctx context.Context, objectKey string) (int64, error) {
+	output, err := s.s3_session.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.s3_session.bucket),
+		Key:    aws.String(objectKey),
+	})
+	if err != nil {
+		var notFound *types.NotFound
+		if errors.As(err, &notFound) {
+			return 0, ErrObjectNotFound
+		}
+		return 0, fmt.Errorf("couldn't get metadata for %v:%v: %w", s.s3_session.bucket, objectKey, err)
+	}
+
+	return aws.ToInt64(output.ContentLength), nil
+}
+
+// DownloadObject stages an object into writer with the transfer manager's concurrent
+// downloader and returns the number of bytes written.
+func (s *S3Repository) DownloadObject(ctx context.Context, objectKey string, writer io.WriterAt) (int64, error) {
+	out, err := s.s3_session.transferClient.DownloadObject(ctx, &transfermanager.DownloadObjectInput{
+		Bucket:   aws.String(s.s3_session.bucket),
+		Key:      aws.String(objectKey),
+		WriterAt: writer,
+	}, func(o *transfermanager.Options) {
+		// Ranged parts make every object concurrent, not only multipart uploads.
+		o.GetObjectType = transfermanagertypes.GetObjectRanges
+	})
+	if err != nil {
+		var noSuchKey *types.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			return 0, ErrObjectNotFound
+		}
+		return 0, fmt.Errorf("couldn't download %v:%v: %w", s.s3_session.bucket, objectKey, err)
+	}
+
+	return aws.ToInt64(out.ContentLength), nil
 }
 
 // DeleteObject deletes an object from S3 located at the bucket and object path
