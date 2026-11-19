@@ -1,0 +1,109 @@
+package http
+
+import (
+	"path"
+	"strings"
+	"testing"
+	"time"
+)
+
+func (registry *directUploadRegistry) lookup(key, owner string) (directUploadSession, error) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+
+	session, err := registry.session(key, owner)
+	if err != nil {
+		return directUploadSession{}, err
+	}
+	return *session, nil
+}
+
+func TestSanitizeUploadFileName(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		accept bool
+	}{
+		{name: "plain", input: "run.mcap", accept: true},
+		{name: "uppercase extension", input: "run.MCAP", accept: true},
+		{name: "surrounding space", input: "  run.mcap  ", accept: true},
+		{name: "empty", input: "", accept: false},
+		{name: "current directory", input: ".", accept: false},
+		{name: "parent directory", input: "..", accept: false},
+		{name: "forward slash", input: "dir/run.mcap", accept: false},
+		{name: "backslash", input: `dir\run.mcap`, accept: false},
+		{name: "control character", input: "run\n.mcap", accept: false},
+		{name: "wrong extension", input: "run.txt", accept: false},
+		{name: "too long", input: strings.Repeat("a", 251) + ".mcap", accept: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, handlerErr := sanitizeUploadFileName(test.input)
+			if (handlerErr == nil) != test.accept {
+				t.Fatalf("sanitizeUploadFileName(%q) error = %v, want accepted %v", test.input, handlerErr, test.accept)
+			}
+		})
+	}
+}
+
+func TestRegistryRejectsForeignAndExpiredUploads(t *testing.T) {
+	registry := newDirectUploadRegistry()
+	registry.add(&directUploadSession{Key: "live", Owner: "alice", ExpiresAt: time.Now().Add(time.Hour)})
+	registry.add(&directUploadSession{Key: "expired", Owner: "alice", ExpiresAt: time.Now().Add(-time.Hour)})
+
+	if _, err := registry.lookup("live", "bob"); err == nil {
+		t.Fatal("lookup accepted a session owned by another user")
+	}
+	if _, err := registry.lookup("expired", "alice"); err == nil {
+		t.Fatal("lookup accepted an expired session")
+	}
+	if _, err := registry.lookup("live", "alice"); err != nil {
+		t.Fatalf("lookup rejected a live session: %v", err)
+	}
+}
+
+func TestClaimFinalizeRejectsConcurrentFinalize(t *testing.T) {
+	registry := newDirectUploadRegistry()
+	registry.add(&directUploadSession{Key: "key", Owner: "alice", ExpiresAt: time.Now().Add(time.Hour)})
+
+	if _, _, err := registry.claimFinalize("key", "alice"); err != nil {
+		t.Fatalf("first claimFinalize: %v", err)
+	}
+	if _, _, err := registry.claimFinalize("key", "alice"); err != errUploadFinalizing {
+		t.Fatalf("second claimFinalize error = %v, want %v", err, errUploadFinalizing)
+	}
+}
+
+func TestTakeExpiredOnlyRemovesExpiredSessions(t *testing.T) {
+	registry := newDirectUploadRegistry()
+	registry.add(&directUploadSession{Key: "live", Owner: "alice", ExpiresAt: time.Now().Add(time.Hour)})
+	registry.add(&directUploadSession{Key: "expired", Owner: "alice", ExpiresAt: time.Now().Add(-time.Hour)})
+
+	expired := registry.takeExpired(time.Now())
+	if len(expired) != 1 || expired[0].Key != "expired" {
+		t.Fatalf("takeExpired = %v, want only the expired session", expired)
+	}
+	if _, err := registry.lookup("live", "alice"); err != nil {
+		t.Fatalf("takeExpired removed a live session: %v", err)
+	}
+}
+
+func TestRecoverDirectUploadSession(t *testing.T) {
+	prefix := path.Join(directUploadPrefix, "alice")
+	validKey := prefix + "/" + strings.Repeat("a", directUploadIDLength) + "/run.mcap"
+
+	session, ok := recoverDirectUploadSession(validKey, "alice")
+	if !ok || session.FileName != "run.mcap" || session.Key != validKey {
+		t.Fatalf("recoverDirectUploadSession(valid) = %v, %v", session, ok)
+	}
+	if _, ok := recoverDirectUploadSession(validKey, "bob"); ok {
+		t.Fatal("recovered a key in another user's namespace")
+	}
+	if _, ok := recoverDirectUploadSession(prefix+"/short/run.mcap", "alice"); ok {
+		t.Fatal("recovered a key with a malformed id")
+	}
+	if _, ok := recoverDirectUploadSession(prefix+"/"+strings.Repeat("a", directUploadIDLength)+"/run.txt", "alice"); ok {
+		t.Fatal("recovered a key with a rejected file name")
+	}
+}

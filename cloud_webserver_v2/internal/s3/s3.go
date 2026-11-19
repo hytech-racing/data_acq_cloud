@@ -33,6 +33,7 @@ func NewS3Session(accessKey string, secretKey string, region string, bucket stri
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 		o.UsePathStyle = nonAwsS3Store
+		o.DisableLogOutputChecksumValidationSkipped = true
 	})
 	presignClient := s3.NewPresignClient(client)
 
