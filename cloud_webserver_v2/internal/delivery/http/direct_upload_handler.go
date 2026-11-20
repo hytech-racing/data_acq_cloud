@@ -389,7 +389,7 @@ func sanitizeUploadFileName(raw string) (string, *HandlerError) {
 		return "", NewHandlerError("fileName is required", http.StatusBadRequest)
 	case len(fileName) > 255:
 		return "", NewHandlerError("fileName is too long", http.StatusBadRequest)
-	case fileName == "." || fileName == ".." || strings.ContainsAny(fileName, `/\`):
+	case strings.ContainsAny(fileName, `/\`):
 		return "", NewHandlerError("fileName must not contain path separators", http.StatusBadRequest)
 	case strings.ContainsFunc(fileName, func(character rune) bool { return character < 0x20 || character == 0x7f }):
 		return "", NewHandlerError("fileName contains invalid characters", http.StatusBadRequest)

@@ -78,8 +78,7 @@ type FileProcessor struct {
 	// Every once in a while, the TotalSize and MiddlewareEstimatedSize are sycned
 	TotalSize atomic.Int64
 
-	// Keeps track of uploads that are still in-progress, keyed by job ID so two jobs for
-	// the same file name do not share a marker.
+	// Keeps track of uploads that are still in-progress.
 	pendingMcapFileUploads map[string]string
 
 	// Keeps track of runs with a re-conversion queued or running, so the same run is
@@ -206,10 +205,6 @@ func (fp *FileProcessor) EnqueueS3Object(objectKey, filename string, size int64,
 	return job, nil
 }
 
-// EnqueueRerunConversion queues a job that regenerates a run's converted files from the
-// MCAP file the run already stores in S3. The run is marked as converting as soon as the
-// job is queued, so a second request gets ErrConversionInProgress instead of converting
-// the same run twice.
 func (fp *FileProcessor) EnqueueRerunConversion(vehicleRunID primitive.ObjectID, mcapFile models.FileModel, size int64) (*FileJob, error) {
 	if !fp.HasCapacityFor(size) {
 		return nil, ErrInsufficientCapacity
@@ -237,7 +232,6 @@ func (fp *FileProcessor) EnqueueRerunConversion(vehicleRunID primitive.ObjectID,
 	return job, nil
 }
 
-// newFileJob builds the state every queued job shares. Hidden is set by the caller.
 func (fp *FileProcessor) newFileJob(sourceS3Key, filename string, size int64, processor FileJobProcessor) *FileJob {
 	id := fmt.Sprintf("job_%s", primitive.NewObjectID().Hex())
 	now := time.Now()
@@ -257,17 +251,12 @@ func (fp *FileProcessor) newFileJob(sourceS3Key, filename string, size int64, pr
 	}
 }
 
-// queueJob counts the file the job will stage against the processor's limits and hands
-// the job to the worker. finishJob reverses the space once the job is done.
 func (fp *FileProcessor) queueJob(job *FileJob) {
 	fp.TotalSize.Add(job.Size)
 	fp.MiddlewareEstimatedSize.Add(job.Size)
 	fp.fileQueueChan <- job
 }
 
-// HasCapacityFor reports whether the file processor can stage another size bytes. It
-// looks at both the actual size of the files in the upload directory and the
-// middleware's estimate, which includes uploads that are still in flight.
 func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 	currentSize := fp.TotalSize.Load()
 	if estimated := fp.MiddlewareEstimatedSize.Load(); estimated > currentSize {

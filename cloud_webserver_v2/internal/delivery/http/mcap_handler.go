@@ -419,14 +419,12 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 }
 
 // RerunConversion queues the MCAP -> HDF5 conversion again for an existing vehicle run.
-// It recovers runs that were saved with only their MCAP after a failed conversion, and
-// regenerates converted files after the conversion pipeline has changed.
 func (h *mcapHandler) RerunConversion(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
 
-	// if _, err := h.authHandler.CurrentSession(r); err != nil {
-	// 	return NewHandlerError("not authenticated", http.StatusUnauthorized)
-	// }
+	if _, err := h.authHandler.CurrentSession(r); err != nil {
+		return NewHandlerError("not authenticated", http.StatusUnauthorized)
+	}
 
 	mcapId := chi.URLParam(r, "id")
 	if mcapId == "" {

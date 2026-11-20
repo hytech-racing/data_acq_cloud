@@ -110,6 +110,9 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 			hdf5Location = data.(string)
 		}
 	}
+	if hdf5Location == "" {
+		return fail(fmt.Errorf("no hdf5 file was generated for %v", job.Filename))
+	}
 	defer func() {
 		if err := os.Remove(hdf5Location); err != nil {
 			log.Printf("failed to remove created HDF5 file: %v", err)
@@ -250,6 +253,7 @@ func pushToArchive(job *FileJob, outputs *mcapConversionOutputs) error {
 
 	// Copy the HDF5 file contents over to the file in the volume
 	if _, err := io.Copy(destHdf5File, srcHdf5File); err != nil {
+		os.Remove(hdf5VolumePath)
 		return fmt.Errorf("failed to copy h5 file over to volume: %w", err)
 	}
 
@@ -271,7 +275,7 @@ func pushToArchive(job *FileJob, outputs *mcapConversionOutputs) error {
 
 		// Copy the MCAP file contents over to the file in the volume
 		if _, err := io.Copy(destMcapFile, volumeMcapFile); err != nil {
-			log.Printf("failed to copy mcap file over to volume: %v", err)
+			return fmt.Errorf("failed to copy mcap file over to volume: %v", err)
 		}
 	}
 
