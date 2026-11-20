@@ -171,7 +171,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		VelocityObjectPath: vnTimeVelPlotFileObjectPath,
 	}
 
-	if err := archiveToVolume(job, outputs); err != nil {
+	if err := pushToArchive(job, outputs); err != nil {
 		if isRerun {
 			removeGeneratedHDF5(job)
 		}
@@ -229,9 +229,7 @@ func convertedFile(bucket, objectPath string) models.FileModel {
 	}
 }
 
-// archiveToVolume copies the MCAP and its generated HDF5 file into the production
-// metadata volume so other services can read them without going through S3.
-func archiveToVolume(job *FileJob, outputs *mcapConversionOutputs) error {
+func pushToArchive(job *FileJob, outputs *mcapConversionOutputs) error {
 	if os.Getenv("ENV") != "PRODUCTION" {
 		return nil
 	}

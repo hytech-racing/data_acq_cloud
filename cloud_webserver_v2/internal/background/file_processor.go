@@ -277,7 +277,7 @@ func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 }
 
 func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob) (*float64, string, error) {
-	if hash, durationSeconds, ok := stageArchivedCopy(job); ok {
+	if hash, durationSeconds, ok := pullFromArchive(job); ok {
 		return durationSeconds, hash, nil
 	}
 
@@ -314,10 +314,9 @@ func hashStagedFile(file *os.File, downloaded, expected int64) (string, error) {
 	return utils.CreateFileHash(file)
 }
 
-// stageArchivedCopy points the job at the MCAP a previous conversion archived in the run
-// metadata volume, returning its hash and duration. Only a copy with exactly the expected
-// size is reused, so a partially written archive falls back to the download.
-func stageArchivedCopy(job *FileJob) (string, *float64, bool) {
+// pullFromArchive points the job at the MCAP a previous conversion archived in the run
+// metadata volume, returning its hash and duration.
+func pullFromArchive(job *FileJob) (string, *float64, bool) {
 	localPath := filepath.Join(RUN_METADATA_DIR, job.SourceS3Key)
 
 	info, err := os.Stat(localPath)
