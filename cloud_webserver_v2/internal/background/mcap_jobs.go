@@ -94,7 +94,6 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 			}
 			log.Printf("saved vehicle run %v with only the mcap file: %v", vehicleRunModel.Id.Hex(), conversionErr)
 		}
-		removeGeneratedHDF5(job)
 		return conversionErr
 	}
 
@@ -111,6 +110,11 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 			hdf5Location = data.(string)
 		}
 	}
+	defer func() {
+		if err := os.Remove(hdf5Location); err != nil {
+			log.Printf("failed to remove created HDF5 file: %v", err)
+		}
+	}()
 
 	// Extracting VN Lat-Lon file location from results
 	var vnLatLonPlotWriter *io.WriterTo
@@ -172,14 +176,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	}
 
 	if err := pushToArchive(job, outputs); err != nil {
-		if isRerun {
-			removeGeneratedHDF5(job)
-		}
-		return err
-	}
-
-	if err := os.Remove(hdf5Location); err != nil {
-		return fmt.Errorf("failed to remove created HDF5 file. McapFile: %w", err)
+		log.Printf("Error when archiving file: %v", err)
 	}
 
 	if isRerun {
@@ -211,14 +208,6 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 
 	log.Printf("Completed job %v", job.ID)
 	return nil
-}
-
-// removeGeneratedHDF5 deletes the local HDF5 file a conversion may have created.
-func removeGeneratedHDF5(job *FileJob) {
-	generatedHdf5Location := fmt.Sprintf("%s/%s.h5", job.FileDir, job.ID)
-	if err := os.Remove(generatedHdf5Location); err != nil && !os.IsNotExist(err) {
-		log.Printf("failed to remove generated hdf5 file %v: %v", generatedHdf5Location, err)
-	}
 }
 
 func convertedFile(bucket, objectPath string) models.FileModel {
