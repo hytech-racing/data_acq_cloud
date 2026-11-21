@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -71,6 +72,7 @@ func NewMcapHandler(
 		r.Delete("/{id}", HandlerFunc(handler.DeleteMcapFromID).ServeHTTP)
 		r.Post("/{id}/updateMetadataRecords", HandlerFunc(handler.UpdateMetadataRecordFromID).ServeHTTP)
 		r.Post("/{id}/changeVisibilityTo/{visibility}", HandlerFunc(handler.ChangeVisibility).ServeHTTP)
+		r.Post("/{id}/rerunConversion", HandlerFunc(handler.RerunConversion).ServeHTTP)
 	})
 }
 
@@ -413,5 +415,59 @@ func (h *mcapHandler) UpdateMetadataRecordFromID(w http.ResponseWriter, r *http.
 		return NewHandlerError(err.Error(), http.StatusInternalServerError)
 	}
 
+	return nil
+}
+
+// RerunConversion queues the MCAP -> HDF5 conversion again for an existing vehicle run.
+func (h *mcapHandler) RerunConversion(w http.ResponseWriter, r *http.Request) *HandlerError {
+	ctx := r.Context()
+
+	if _, err := h.authHandler.CurrentSession(r); err != nil {
+		return NewHandlerError("not authenticated", http.StatusUnauthorized)
+	}
+
+	mcapId := chi.URLParam(r, "id")
+	if mcapId == "" {
+		return NewHandlerError("invalid request, must pass in mcap id", http.StatusBadRequest)
+	}
+	objectId, err := primitive.ObjectIDFromHex(mcapId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not decode mcap id %v, %v", mcapId, err), http.StatusBadRequest)
+	}
+
+	vehicleRun, err := h.dbClient.VehicleRunUseCase().GetVehicleRunById(ctx, objectId)
+	if err != nil {
+		return NewHandlerError(fmt.Sprintf("could not get vehicle run by id %v, %v", mcapId, err), http.StatusInternalServerError)
+	}
+
+	if len(vehicleRun.McapFiles) == 0 {
+		return NewHandlerError(fmt.Sprintf("run %v has no mcap file to convert", mcapId), http.StatusBadRequest)
+	}
+
+	// A run is created from one uploaded MCAP, so its first file is the one that
+	// produced (or failed to produce) the converted files.
+	mcapFile := vehicleRun.McapFiles[0]
+	size, err := h.s3Repository.HeadObject(ctx, mcapFile.FilePath)
+	if errors.Is(err, s3.ErrObjectNotFound) {
+		return NewHandlerError(fmt.Sprintf("mcap file for run %v was not found in the bucket", mcapId), http.StatusNotFound)
+	}
+	if err != nil {
+		log.Printf("failed to inspect mcap %v for re-conversion: %v", mcapFile.FilePath, err)
+		return NewHandlerError("failed to inspect the run's mcap file", http.StatusInternalServerError)
+	}
+
+	job, err := h.fileProcessor.EnqueueRerunConversion(objectId, mcapFile, size)
+	if errors.Is(err, background.ErrConversionInProgress) {
+		return NewHandlerError("this run is already being converted", http.StatusConflict)
+	}
+	if errors.Is(err, background.ErrInsufficientCapacity) {
+		return NewHandlerError("server is out of processing capacity, try again later", http.StatusServiceUnavailable)
+	}
+	if err != nil {
+		log.Printf("failed to queue re-conversion for run %v: %v", objectId.Hex(), err)
+		return NewHandlerError("failed to queue the run for conversion", http.StatusInternalServerError)
+	}
+
+	render.JSON(w, r, map[string]any{"jobId": job.ID})
 	return nil
 }
