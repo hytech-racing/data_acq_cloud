@@ -41,24 +41,26 @@ func NewHDF5Writer(filename string) (*HDF5Writer, error) {
 }
 
 // ChunkWrite creates a new group in the HDF5 file and writes all data in the signalData map into it
-func (writer *HDF5Writer) ChunkWrite(signalData map[string]map[string]interface{}) error {
-	newChunk, err := writer.file.CreateGroup(fmt.Sprintf("/data/chunk_%d", writer.currentChunk))
+func (writer *HDF5Writer) ChunkWrite(signalData map[string]map[string]interface{}) (err error) {
+	chunk := writer.currentChunk
+	writer.currentChunk++
+
+	newChunk, err := writer.file.CreateGroup(fmt.Sprintf("/data/chunk_%d", chunk))
 	if err != nil {
 		return err
 	}
+	// The group exists in the file now, so it has to be closed on every path, including failures.
+	defer func() {
+		if closeErr := newChunk.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("could not close chunk %d: %w", chunk, closeErr)
+		}
+	}()
 
-	err = writer.exploreAndAddDataset("", newChunk, signalData)
-	if err != nil {
+	if err = writer.exploreAndAddDataset("", newChunk, signalData); err != nil {
 		return err
 	}
 
-	err = newChunk.Close()
-	if err != nil {
-		return err
-	}
-
-	log.Printf("wrote chunk: %v", writer.currentChunk)
-	writer.currentChunk += 1
+	log.Printf("wrote chunk: %v", chunk)
 	return nil
 }
 

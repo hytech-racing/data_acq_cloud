@@ -20,6 +20,10 @@ type RawHDF5Writer struct {
 	filePath        string
 	failedMessages  [][2]interface{}
 	maxSignalLength int // Constantly updated so we know what the max len of a data slice is
+
+	// ignoredSignals holds signals whose value type cannot be stored in HDF5, so they
+	// are logged once instead of once per message.
+	ignoredSignals map[string]struct{}
 }
 
 func CreateRawHDF5Writer(filePath, fileName string) (*RawHDF5Writer, error) {
@@ -37,6 +41,7 @@ func CreateRawHDF5Writer(filePath, fileName string) (*RawHDF5Writer, error) {
 		HDF5Writer:      hdf5Writer,
 		maxSignalLength: 0,
 		filePath:        hdf5Location,
+		ignoredSignals:  make(map[string]struct{}),
 	}, nil
 }
 
@@ -70,11 +75,13 @@ func (w *RawHDF5Writer) AddSignalValue(decodedMessage *utils.DecodedMessage) err
 
 	if w.maxSignalLength > 100_000 {
 		err := w.HDF5Writer.ChunkWrite(w.allSignalData)
+		// Drop the written data no matter what: keeping a chunk that failed to write would
+		// retry it for every later message, flooding the log and growing the map forever.
+		w.allSignalData = make(map[string]map[string]interface{})
+		w.maxSignalLength = 0
 		if err != nil {
 			return err
 		}
-		w.allSignalData = make(map[string]map[string]interface{})
-		w.maxSignalLength = 0
 	}
 
 	return nil
@@ -109,6 +116,10 @@ func (w *RawHDF5Writer) processSignalValue(topic, signalName, signalPath string,
 		w.addNondynamicSliceValues(signalName, value, currentNest.(map[string]interface{}), signalPath, logTime)
 		return
 	default: // Non-dynamic message
+		if !utils.IsSupportedColumnValue(value) {
+			w.ignoreUnsupported(signalPath, value)
+			return
+		}
 		if w.allSignalData[topic][signalName] == nil {
 			w.allSignalData[topic][signalName] = utils.NewHDF5Column(value)
 		}
@@ -119,9 +130,25 @@ func (w *RawHDF5Writer) processSignalValue(topic, signalName, signalPath string,
 	}
 }
 
+// ignoreUnsupported records a signal whose values cannot be stored in HDF5. It logs only the
+// first occurrence so an unsupported type (for example a protobuf well-known type) does not
+// flood the log once per message.
+func (w *RawHDF5Writer) ignoreUnsupported(signalName string, value interface{}) {
+	if _, seen := w.ignoredSignals[signalName]; seen {
+		return
+	}
+	w.ignoredSignals[signalName] = struct{}{}
+	log.Printf("ignoring signal %v in hdf5 file: unsupported value type %T", signalName, value)
+}
+
 // appendDownsampled adds value to the signal column at givenMap[signalName],
-// unless it is less than 5ms after the last value in that column
+// unless it is less than 5ms after the last value in that column.
+// Values whose type cannot be stored in HDF5 are ignored.
 func (w *RawHDF5Writer) appendDownsampled(givenMap map[string]interface{}, signalName string, value interface{}, logTime float64) {
+	if !utils.IsSupportedColumnValue(value) {
+		w.ignoreUnsupported(signalName, value)
+		return
+	}
 	if _, ok := givenMap[signalName]; !ok {
 		givenMap[signalName] = utils.NewHDF5Column(value)
 	}
