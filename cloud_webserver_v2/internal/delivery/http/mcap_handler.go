@@ -158,12 +158,11 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 	var runs []models.VehicleRunModel
 	var nextCursor *models.PageCursor
 	if paged {
-		result, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFiltersPage(ctx, &filters, includeHidden, page)
+		runs, nextCursor, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFiltersPage(ctx, &filters, includeHidden, page)
 		if err != nil {
 			log.Printf("failed to list MCAPs: %v", err)
 			return NewHandlerError("failed to list MCAPs", http.StatusInternalServerError)
 		}
-		runs, nextCursor = result.Runs, result.Next
 	} else {
 		runs, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters, includeHidden)
 		if err != nil {

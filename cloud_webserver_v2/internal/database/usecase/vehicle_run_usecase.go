@@ -121,25 +121,25 @@ func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters
 	return result, nil
 }
 
-func (uc *VehicleRunUseCase) GetVehicleRunByFiltersPage(ctx context.Context, filters *models.VehicleRunModelFilters, includeHidden bool, page models.PageRequest) (models.VehicleRunPage, error) {
+func (uc *VehicleRunUseCase) GetVehicleRunByFiltersPage(ctx context.Context, filters *models.VehicleRunModelFilters, includeHidden bool, page models.PageRequest) ([]models.VehicleRunModel, *models.PageCursor, error) {
 	bson_filters_m := buildFilterBSON(filters, includeHidden)
 
 	runs, err := uc.vechicleRunRepo.GetVehicleRunPage(ctx, &bson_filters_m, page)
 	if err != nil {
-		return models.VehicleRunPage{}, err
+		return []models.VehicleRunModel{}, nil, err
 	}
 
-	result := models.VehicleRunPage{Runs: runs}
+	// MongoDB returns limit+1 if there are more pages
 	if len(runs) > page.Limit() {
-		result.Runs = runs[:page.Limit()]
-		last := result.Runs[len(result.Runs)-1]
-		result.Next = &models.PageCursor{Date: last.Date, ID: last.Id}
+		runs = runs[:page.Limit()]
+		last := runs[len(runs)-1]
+		return runs, &models.PageCursor{Date: last.Date, ID: last.Id}, nil
 	}
-	if result.Runs == nil {
-		result.Runs = make([]models.VehicleRunModel, 0)
+	if runs == nil {
+		runs = make([]models.VehicleRunModel, 0)
 	}
 
-	return result, nil
+	return runs, nil, nil
 }
 
 func (uc *VehicleRunUseCase) GetVehicleRunById(ctx context.Context, id primitive.ObjectID) (*models.VehicleRunModel, error) {

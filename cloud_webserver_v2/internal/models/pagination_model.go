@@ -36,8 +36,3 @@ func (p PageRequest) Limit() int {
 func (p PageRequest) After() *PageCursor {
 	return p.after
 }
-
-type VehicleRunPage struct {
-	Runs []VehicleRunModel
-	Next *PageCursor
-}
