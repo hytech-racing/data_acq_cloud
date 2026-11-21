@@ -281,9 +281,8 @@ func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob)
 		return nil, "", err
 	}
 
-	fileHash, err := hashStagedFile(file, downloaded, job.Size)
-	if err != nil {
-		return nil, "", err
+	if downloaded != job.Size {
+		return nil, "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, job.Size)
 	}
 
 	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(file, 0, job.Size))
@@ -291,16 +290,8 @@ func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob)
 		log.Printf("could not read MCAP duration for %v: %v", job.FilePath, err)
 	}
 
-	return durationSeconds, fileHash, nil
-}
-
-// hashStagedFile returns the SHA-256 of a staged file and rejects a download whose byte
-// count does not match the size the client reported.
-func hashStagedFile(file *os.File, downloaded, expected int64) (string, error) {
-	if downloaded != expected {
-		return "", fmt.Errorf("staged file %v has %d bytes, expected %d", file.Name(), downloaded, expected)
-	}
-	return utils.CreateFileHash(file)
+	fileHash, err := utils.CreateFileHash(file)
+	return durationSeconds, fileHash, err
 }
 
 // pullFromArchive points the job at the MCAP a previous conversion archived in the run

@@ -252,8 +252,8 @@ func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessag
 		}
 	}
 
-	// Close even when no supported signal was found so the file handle is not leaked.
-	if err := hdf5Writer.HDF5Writer.Close(); err != nil {
+	err := hdf5Writer.HDF5Writer.Close()
+	if err != nil {
 		log.Printf("could not close hdf5 file: %v", err)
 	}
 
