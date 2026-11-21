@@ -159,7 +159,7 @@ func PlotTimeVelocity(id int, subscriberName string, ch <-chan SubscribedMessage
 
 			decodedFL := veh_vec_floatDynamicMessage.GetField(fl_Descriptor)
 			decodedFR := veh_vec_floatDynamicMessage.GetField(fr_Descriptor)
-			if decodedFL == nil || decodedFL == nil {
+			if decodedFL == nil || decodedFR == nil {
 				continue
 			}
 
@@ -215,7 +215,6 @@ func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessag
 	var hdf5Writer *subscribers.RawHDF5Writer
 	var fileName string
 	var filePath string
-	var hdf5Err error
 	for msg := range ch {
 		if msg.GetContent().Topic == EOF {
 			break
@@ -223,36 +222,27 @@ func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessag
 			if name, exists := msg.GetContent().Data["file_name"]; exists {
 				fileName = name.(string)
 			} else {
-				hdf5Err = fmt.Errorf("no file name was provided for the hdf5 file")
-				continue
+				log.Printf("no file name was provided for the hdf5 file")
+				return
 			}
 
 			if path, exists := msg.GetContent().Data["file_path"]; exists {
 				filePath = path.(string)
 			} else {
-				hdf5Err = fmt.Errorf("no file path was provided for the hdf5 file")
-				continue
+				log.Printf("No HDF5 file was generated for %v: no file path was provided for the hdf5 file", fileName)
+				return
 			}
 			var err error
 			hdf5Writer, err = subscribers.CreateRawHDF5Writer(filePath, fileName)
 			if err != nil {
-				log.Printf("could not start matlab worker: %v", err)
-				hdf5Err = err
+				log.Printf("No HDF5 file was generated for %v: could not start matlab worker: %v", fileName, err)
+				return
 			}
-		} else if hdf5Writer != nil && hdf5Err == nil {
+		} else if hdf5Writer != nil {
 			if err := hdf5Writer.AddSignalValue(msg.GetContent()); err != nil {
 				log.Printf("could not add signal value to hdf5 file: %v", err)
-				hdf5Err = err
 			}
 		}
-	}
-
-	// The channel still has to be drained when no hdf5 file could be generated, which is why
-	// errors are recorded instead of stopping the loop early. Nothing is sent as a result in
-	// that case, which callers treat as a failed conversion.
-	if hdf5Writer == nil || hdf5Err != nil {
-		log.Printf("no hdf5 file was generated for %v: %v", fileName, hdf5Err)
-		return
 	}
 
 	if hdf5Writer.MaxSignalLength() > 0 {
@@ -260,11 +250,11 @@ func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessag
 		if err != nil {
 			log.Printf("could not chunk write hdf5 file: %v", err)
 		}
+	}
 
-		err = hdf5Writer.HDF5Writer.Close()
-		if err != nil {
-			log.Printf("could not close hdf5 file: %v", err)
-		}
+	err := hdf5Writer.HDF5Writer.Close()
+	if err != nil {
+		log.Printf("could not close hdf5 file: %v", err)
 	}
 
 	result := make(map[string]interface{})

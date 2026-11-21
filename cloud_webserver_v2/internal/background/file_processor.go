@@ -2,6 +2,7 @@ package background
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"github.com/hytech-racing/cloud-webserver-v2/internal/database"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/models"
 	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/s3"
 )
@@ -28,6 +30,14 @@ const (
 	StatusFailed     McapStatus = "failed"
 )
 
+var (
+	ErrInsufficientCapacity = errors.New("not enough file capacity to stage the run's mcap")
+	ErrConversionInProgress = errors.New("a conversion is already in progress for this run")
+)
+
+// fileProcessorWorkerCount is greater than one so a job can download or upload while another converts.
+const fileProcessorWorkerCount = 3
+
 // A FileJobProcessor serves as an interface to wrap a Process function used by a FileJob.
 // The Process function contains logic to execute a FileJob.
 // A job uses the Process function to perform its task.
@@ -37,7 +47,9 @@ type FileJobProcessor interface {
 
 // A FileProcessor handles FileJobs in a queue manner.
 // Jobs are currently queued from file uploads, but can be queued for more (in the future).
-// FileJobs are processed one by one and the internal logic for handling a Job lives within the FileJob struct.
+// Workers run several jobs at once so a job can download or upload while another converts,
+// but the conversion itself is serialized. The internal logic for handling a Job lives
+// within the FileJob struct.
 type FileProcessor struct {
 	// dbClient is the client the FileProcessor uses to accesses the database
 	dbClient *database.DatabaseClient
@@ -66,8 +78,12 @@ type FileProcessor struct {
 	// Every once in a while, the TotalSize and MiddlewareEstimatedSize are sycned
 	TotalSize atomic.Int64
 
-	// Keeps track of uploads that are still in-progress
-	pendingMcapFileUploads map[string]struct{}
+	// Keeps track of uploads that are still in-progress.
+	pendingMcapFileUploads map[string]string
+
+	// Keeps track of runs with a re-conversion queued or running, so the same run is
+	// never converted twice at once.
+	pendingRerunConversions map[primitive.ObjectID]struct{}
 
 	// processingWg is a WaitGroup used to make sure we complete the last task before gracefuly exiting
 	processingWg sync.WaitGroup
@@ -115,13 +131,17 @@ type FileJob struct {
 	// FileDir is the directory of where the file lives
 	FileDir string
 
-	// SourceS3Key is the key the client uploaded the file to. The processor downloads
-	// the object to FilePath before running the job; it is never re-uploaded because
-	// it already lives in the bucket.
+	// SourceS3Key is the key the client uploaded the file to. The processor stages the
+	// object to FilePath before running the job, reusing the archived copy when one is
+	// complete; it is never re-uploaded because it already lives in the bucket.
 	SourceS3Key string
 
 	// Size is the size of the file in bytes
 	Size int64
+
+	// ReusedLocalCopy reports that FilePath points at a file this job did not create, so
+	// the job must leave it in place for later jobs to reuse.
+	ReusedLocalCopy bool
 
 	Hidden bool
 }
@@ -135,16 +155,17 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 	}
 
 	fp := &FileProcessor{
-		directory:              uploadDir,
-		fileQueueChan:          make(chan *FileJob, 100),
-		stopChan:               make(chan bool),
-		processingWg:           sync.WaitGroup{},
-		mu:                     sync.RWMutex{},
-		maxTotalSize:           maxTotalSize,
-		dbClient:               dbClient,
-		s3Repository:           s3Repository,
-		mcapStatusBroadcaster:  NewMcapStatusBroadcaster(),
-		pendingMcapFileUploads: make(map[string]struct{}),
+		directory:               uploadDir,
+		fileQueueChan:           make(chan *FileJob, 100),
+		stopChan:                make(chan bool),
+		processingWg:            sync.WaitGroup{},
+		mu:                      sync.RWMutex{},
+		maxTotalSize:            maxTotalSize,
+		dbClient:                dbClient,
+		s3Repository:            s3Repository,
+		mcapStatusBroadcaster:   NewMcapStatusBroadcaster(),
+		pendingMcapFileUploads:  make(map[string]string),
+		pendingRerunConversions: make(map[primitive.ObjectID]struct{}),
 	}
 
 	var totalSize int64
@@ -172,34 +193,68 @@ func NewFileProcessor(uploadDir string, maxTotalSize int64, dbClient *database.D
 // request that registers the upload returns immediately no matter how large the file is.
 func (fp *FileProcessor) EnqueueS3Object(objectKey, filename string, size int64, processor FileJobProcessor, hidden bool) (*FileJob, error) {
 	if !fp.HasCapacityFor(size) {
-		return nil, fmt.Errorf("upload would exceed the server's file size limit")
+		return nil, ErrInsufficientCapacity
 	}
 
-	id := fmt.Sprintf("job_%d", time.Now().UnixNano())
-	job := &FileJob{
+	job := fp.newFileJob(objectKey, filename, size, processor)
+	job.Hidden = hidden
+
+	log.Printf("job put in queue for direct upload %v, %v", objectKey, job.ID)
+	fp.queueJob(job)
+
+	return job, nil
+}
+
+func (fp *FileProcessor) EnqueueRerunConversion(vehicleRunID primitive.ObjectID, mcapFile models.FileModel, size int64) (*FileJob, error) {
+	if !fp.HasCapacityFor(size) {
+		return nil, ErrInsufficientCapacity
+	}
+
+	fp.mu.Lock()
+	if _, exists := fp.pendingRerunConversions[vehicleRunID]; exists {
+		fp.mu.Unlock()
+		return nil, ErrConversionInProgress
+	}
+	fp.pendingRerunConversions[vehicleRunID] = struct{}{}
+	fp.mu.Unlock()
+
+	fileName := mcapFile.FileName
+	if fileName == "" {
+		// Older database entries may not have stored a file name.
+		fileName = filepath.Base(mcapFile.FilePath)
+	}
+
+	job := fp.newFileJob(mcapFile.FilePath, fileName, size, &PostProcessMCAPUploadJob{RerunOf: &vehicleRunID})
+
+	log.Printf("re-conversion queued for vehicle run %v, %v", vehicleRunID.Hex(), job.ID)
+	fp.queueJob(job)
+
+	return job, nil
+}
+
+func (fp *FileProcessor) newFileJob(sourceS3Key, filename string, size int64, processor FileJobProcessor) *FileJob {
+	id := fmt.Sprintf("job_%s", primitive.NewObjectID().Hex())
+	now := time.Now()
+
+	return &FileJob{
 		ID:          id,
 		Filename:    filename,
 		Size:        size,
 		Status:      StatusPending,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
 		FilePath:    filepath.Join(fp.directory, fmt.Sprintf("%s_%s", id, filename)),
 		FileDir:     fp.directory,
-		SourceS3Key: objectKey,
-		Date:        time.Now(), // TODO: Change to date gotten from MCAP
+		SourceS3Key: sourceS3Key,
+		Date:        now, // TODO: Change to date gotten from MCAP
 		Processor:   processor,
-		Hidden:      hidden,
 	}
+}
 
-	// The downloaded file will occupy local storage until the job finishes, so count
-	// it now. finishJob reverses this once the file has been consumed or removed.
+func (fp *FileProcessor) queueJob(job *FileJob) {
 	fp.TotalSize.Add(job.Size)
 	fp.MiddlewareEstimatedSize.Add(job.Size)
-
-	log.Printf("job put in queue for direct upload %v, %v", objectKey, job.ID)
 	fp.fileQueueChan <- job
-
-	return job, nil
 }
 
 func (fp *FileProcessor) HasCapacityFor(size int64) bool {
@@ -211,6 +266,10 @@ func (fp *FileProcessor) HasCapacityFor(size int64) bool {
 }
 
 func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob) (*float64, string, error) {
+	if hash, durationSeconds, ok := pullFromArchive(job); ok {
+		return durationSeconds, hash, nil
+	}
+
 	file, err := os.Create(job.FilePath)
 	if err != nil {
 		return nil, "", err
@@ -235,27 +294,63 @@ func (fp *FileProcessor) downloadAndStageMCAP(ctx context.Context, job *FileJob)
 	return durationSeconds, fileHash, err
 }
 
+// pullFromArchive points the job at the MCAP a previous conversion archived in the run
+// metadata volume, returning its hash and duration.
+func pullFromArchive(job *FileJob) (string, *float64, bool) {
+	localPath := filepath.Join(RUN_METADATA_DIR, job.SourceS3Key)
+
+	info, err := os.Stat(localPath)
+	if err != nil || info.Size() != job.Size {
+		return "", nil, false
+	}
+
+	file, err := os.Open(localPath)
+	if err != nil {
+		return "", nil, false
+	}
+	defer file.Close()
+
+	hash, err := utils.CreateFileHash(file)
+	if err != nil {
+		return "", nil, false
+	}
+
+	durationSeconds, err := utils.McapDurationSeconds(io.NewSectionReader(file, 0, job.Size))
+	if err != nil {
+		log.Printf("could not read MCAP duration for %v: %v", localPath, err)
+	}
+
+	job.FilePath = localPath
+	job.ReusedLocalCopy = true
+	log.Printf("reusing archived copy %v for job %v", localPath, job.ID)
+
+	return hash, durationSeconds, true
+}
+
 // finishJob removes the job's staged file and releases the space it occupied. It runs
 // exactly once per processed job, whether the job succeeded or failed.
 func (fp *FileProcessor) finishJob(job *FileJob) {
-	if err := os.Remove(job.FilePath); err != nil && !os.IsNotExist(err) {
-		log.Printf("failed to remove processed file %v: %v", job.FilePath, err)
+	// A reused archived copy is shared with later jobs, so only a file this job staged is removed.
+	if !job.ReusedLocalCopy {
+		if err := os.Remove(job.FilePath); err != nil && !os.IsNotExist(err) {
+			log.Printf("failed to remove processed file %v: %v", job.FilePath, err)
+		}
 	}
 	fp.TotalSize.Add(-job.Size)
 	fp.MiddlewareEstimatedSize.Add(-job.Size)
+
+	if rerun, ok := job.Processor.(*PostProcessMCAPUploadJob); ok && rerun.RerunOf != nil {
+		fp.mu.Lock()
+		delete(fp.pendingRerunConversions, *rerun.RerunOf)
+		fp.mu.Unlock()
+	}
 }
 
-// jobQueueListener creates a listener which continuously polls the channels to check if there
-// is a new file job to process or if it should gracefully stop. It dequeues and processes the jobs here.
-func (fp *FileProcessor) jobQueueListener(ctx context.Context) {
+// jobWorker processes queued jobs until the processor stops.
+func (fp *FileProcessor) jobWorker(ctx context.Context) {
 	defer fp.processingWg.Done()
 
 	for {
-		// Ensures that only 1 file is being processed at a time (to save resources)
-		// And that a file currently being processed tries to finish
-		if len(fp.pendingMcapFileUploads) > 0 {
-			time.Sleep(5 * time.Second)
-		}
 		select {
 		case <-ctx.Done():
 			return
@@ -276,7 +371,7 @@ func (fp *FileProcessor) broadcastFileUploadStart(job *FileJob) {
 	log.Printf("MCAP File %v is being uploaded.", job.Filename)
 	job.Status = StatusProcessing
 	job.UpdatedAt = time.Now()
-	fp.pendingMcapFileUploads[job.Filename] = struct{}{}
+	fp.pendingMcapFileUploads[job.ID] = job.Filename
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
 		Status: StatusProcessing,
 		Name:   job.Filename,
@@ -290,7 +385,7 @@ func (fp *FileProcessor) broadcastFileUploadError(job *FileJob, error error) {
 	log.Printf("MCAP File %v did not upload. Error: %v", job.Filename, error)
 	job.Status = StatusFailed
 	job.UpdatedAt = time.Now()
-	delete(fp.pendingMcapFileUploads, job.Filename)
+	delete(fp.pendingMcapFileUploads, job.ID)
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
 		Status: StatusFailed,
 		Name:   job.Filename,
@@ -305,7 +400,7 @@ func (fp *FileProcessor) broadcastFileUploadEnd(job *FileJob, ctx context.Contex
 	log.Printf("File %v is marked as done", job.Filename)
 	job.Status = StatusCompleted
 	job.UpdatedAt = time.Now()
-	delete(fp.pendingMcapFileUploads, job.Filename)
+	delete(fp.pendingMcapFileUploads, job.ID)
 	fp.mcapStatusBroadcaster.Broadcast(McapStatusEvent{
 		Status: StatusCompleted,
 		Data:   models.VehicleRunSerialize(ctx, fp.s3Repository, *vehicleRunModel),
@@ -316,7 +411,7 @@ func (fp *FileProcessor) GetPendingMcapUploads() []string {
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
 	fileUploads := make([]string, 0, len(fp.pendingMcapFileUploads))
-	for fileUpload, _ := range fp.pendingMcapFileUploads {
+	for _, fileUpload := range fp.pendingMcapFileUploads {
 		fileUploads = append(fileUploads, fileUpload)
 	}
 	return fileUploads
@@ -330,13 +425,15 @@ func (fp *FileProcessor) UnsubscribeFromMcapStatus(subscriber chan []byte) {
 	fp.mcapStatusBroadcaster.Unsubscribe(subscriber)
 }
 
-// Start takes in context.Context and strats the FileProcessor.
+// Start starts the FileProcessor's workers.
 func (fp *FileProcessor) Start(ctx context.Context) {
-	fp.processingWg.Add(1)
-	go fp.jobQueueListener(ctx)
+	for i := 0; i < fileProcessorWorkerCount; i++ {
+		fp.processingWg.Add(1)
+		go fp.jobWorker(ctx)
+	}
 }
 
-// Stop stops the file processor and waits for its closure.
+// Stop stops the file processor and waits for up to fileProcessorWorkerCount in-flight jobs.
 func (fp *FileProcessor) Stop() {
 	close(fp.stopChan)
 	fp.processingWg.Wait()
