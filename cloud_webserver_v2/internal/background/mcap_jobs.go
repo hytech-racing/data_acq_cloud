@@ -25,8 +25,8 @@ const (
 )
 
 type mcapConversionOutputs struct {
-	HDF5Location       string
-	HDF5ObjectPath     string
+	MatLocation        string
+	MatObjectPath      string
 	LatLonObjectPath   string
 	VelocityObjectPath string
 }
@@ -39,9 +39,6 @@ type PostProcessMCAPUploadJob struct {
 	RerunOf *primitive.ObjectID
 }
 
-// Process reads MCAPs and sends the messages to multiple subscribers which
-// handle operations like creating HDF5 files and generating graphs.
-// It also saves all this information to the database and stores files on S3.
 func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJob) error {
 	isRerun := p.RerunOf != nil
 	ctx := context.Background()
@@ -66,7 +63,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	mcapObjectFilePath := job.SourceS3Key
 
 	// The vehicle run is created upfront with only the MCAP file attached to it. Converted
-	// files (the HDF5 file and its plots) are attached later, but only when the conversion
+	// files (the MAT file and its plots) are attached later, but only when the conversion
 	// succeeds. This makes sure an uploaded MCAP is always returned by the fetch endpoints.
 	// A rerun discards this model and reloads the existing run after conversion.
 	vehicleRunModel := &models.VehicleRunModel{
@@ -103,19 +100,18 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		return fail(err)
 	}
 
-	// Extracting HDF5 file location from results
-	var hdf5Location string
-	if outer, ok := mcapResults[messaging.HDF5]; ok {
+	var matLocation string
+	if outer, ok := mcapResults[messaging.MAT]; ok {
 		if data, ok := outer.ResultData["file_path"]; ok {
-			hdf5Location = data.(string)
+			matLocation = data.(string)
 		}
 	}
-	if hdf5Location == "" {
-		return fail(fmt.Errorf("no hdf5 file was generated for %v", job.Filename))
+	if matLocation == "" {
+		return fail(fmt.Errorf("no mat file was generated for %v", job.Filename))
 	}
 	defer func() {
-		if err := os.Remove(hdf5Location); err != nil {
-			log.Printf("failed to remove created HDF5 file: %v", err)
+		if err := os.Remove(matLocation); err != nil {
+			log.Printf("failed to remove created MAT file: %v", err)
 		}
 	}()
 
@@ -135,19 +131,18 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 		}
 	}
 
-	// Uploading HDF5 file to S3
-	hdf5File, err := os.Open(hdf5Location)
+	matFile, err := os.Open(matLocation)
 	if err != nil {
-		return fail(fmt.Errorf("could not open generated hdf5 file %v: %w", hdf5Location, err))
+		return fail(fmt.Errorf("could not open generated mat file %v: %w", matLocation, err))
 	}
-	defer hdf5File.Close()
+	defer matFile.Close()
 
-	hdf5FileName := fmt.Sprintf("%s.h5", genericFileName)
-	matObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), hdf5FileName)
-	if err := fp.s3Repository.PutObject(ctx, hdf5File, matObjectFilePath); err != nil {
-		return fail(fmt.Errorf("failed to upload hdf5 file %v to s3: %w", hdf5FileName, err))
+	matFileName := fmt.Sprintf("%s.mat", genericFileName)
+	matObjectFilePath := fmt.Sprintf("%s/%s", recordId.Hex(), matFileName)
+	if err := fp.s3Repository.PutObject(ctx, matFile, matObjectFilePath); err != nil {
+		return fail(fmt.Errorf("failed to upload mat file %v to s3: %w", matFileName, err))
 	}
-	log.Printf("uploaded hdf5 file %v to s3", hdf5FileName)
+	log.Printf("uploaded mat file %v to s3", matFileName)
 
 	// Uploading Lat-Lon file to S3
 	if vnLatLonPlotWriter == nil {
@@ -172,8 +167,8 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	log.Printf("uploaded vn time vel plot %v to s3", vnTimeVelPlotName)
 
 	outputs := &mcapConversionOutputs{
-		HDF5Location:       hdf5Location,
-		HDF5ObjectPath:     matObjectFilePath,
+		MatLocation:        matLocation,
+		MatObjectPath:      matObjectFilePath,
 		LatLonObjectPath:   vnLatLonPlotFileObjectPath,
 		VelocityObjectPath: vnTimeVelPlotFileObjectPath,
 	}
@@ -191,7 +186,7 @@ func (p *PostProcessMCAPUploadJob) ProcessFileJob(fp *FileProcessor, job *FileJo
 	}
 
 	bucket := fp.s3Repository.Bucket()
-	vehicleRunModel.MatFiles = []models.FileModel{convertedFile(bucket, outputs.HDF5ObjectPath)}
+	vehicleRunModel.MatFiles = []models.FileModel{convertedFile(bucket, outputs.MatObjectPath)}
 	if vehicleRunModel.ContentFiles == nil {
 		vehicleRunModel.ContentFiles = make(map[string][]models.FileModel)
 	}
@@ -229,32 +224,30 @@ func pushToArchive(job *FileJob, outputs *mcapConversionOutputs) error {
 	// Directly uploaded MCAPs keep the S3 key the client wrote to, which has more
 	// path segments than the record ID used for generated files. Create the parent
 	// of each destination rather than assuming one layout.
-	hdf5VolumePath := filepath.Join(RUN_METADATA_DIR, outputs.HDF5ObjectPath)
+	matVolumePath := filepath.Join(RUN_METADATA_DIR, outputs.MatObjectPath)
 	mcapVolumePath := filepath.Join(RUN_METADATA_DIR, job.SourceS3Key)
-	if err := os.MkdirAll(filepath.Dir(hdf5VolumePath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(matVolumePath), 0o755); err != nil {
 		return fmt.Errorf("failed to create the run metadata directory: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(mcapVolumePath), 0o755); err != nil {
 		return fmt.Errorf("failed to create the run metadata directory: %w", err)
 	}
 
-	srcHdf5File, err := os.Open(outputs.HDF5Location)
+	srcMatFile, err := os.Open(outputs.MatLocation)
 	if err != nil {
-		return fmt.Errorf("failed to open h5 file for the volume: %w", err)
+		return fmt.Errorf("failed to open mat file for the volume: %w", err)
 	}
-	defer srcHdf5File.Close()
+	defer srcMatFile.Close()
 
-	// Create the HDF5 file in the volume
-	destHdf5File, err := os.Create(hdf5VolumePath)
+	destMatFile, err := os.Create(matVolumePath)
 	if err != nil {
-		return fmt.Errorf("error to create h5 file in volume %w", err)
+		return fmt.Errorf("error to create mat file in volume %w", err)
 	}
-	defer destHdf5File.Close()
+	defer destMatFile.Close()
 
-	// Copy the HDF5 file contents over to the file in the volume
-	if _, err := io.Copy(destHdf5File, srcHdf5File); err != nil {
-		os.Remove(hdf5VolumePath)
-		return fmt.Errorf("failed to copy h5 file over to volume: %w", err)
+	if _, err := io.Copy(destMatFile, srcMatFile); err != nil {
+		os.Remove(matVolumePath)
+		return fmt.Errorf("failed to copy mat file over to volume: %w", err)
 	}
 
 	// A job that reused the archived copy already has it at the destination, so copying
@@ -282,30 +275,25 @@ func pushToArchive(job *FileJob, outputs *mcapConversionOutputs) error {
 	return nil
 }
 
-// readMCAPMessages reads an MCAP file and routes the topics to subscribers to perform operations on it.
-// By default, we create a vectornav latitude and longitude plot and an HDF5 file with data sampled at 200hz.
-// It collects all the results (map[string]SubscriberResult aliased by SubscriberResults) generated by the subscribers
-// and returns that.
-func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *FileJob, hdf5FileName string) (messaging.SubscriberResults, error) {
+func (p *PostProcessMCAPUploadJob) readMCAPMessages(ctx context.Context, job *FileJob, matFileName string) (messaging.SubscriberResults, error) {
 	// This is all the subsribers relavent to handling an MCAP mcapFile. You can attach more workers here if need be.
 	subscriberMapping := make(map[string]messaging.SubscriberFunc)
 	subscriberMapping[messaging.LATLON] = messaging.PlotLatLon
 	subscriberMapping[messaging.VELOCITY] = messaging.PlotTimeVelocity
-	subscriberMapping[messaging.HDF5] = messaging.CreateRawHDF5File
+	subscriberMapping[messaging.MAT] = messaging.CreateRawMatFile
 
-	return p.publishMCAPMessages(ctx, job, hdf5FileName, subscriberMapping)
+	return p.publishMCAPMessages(ctx, job, matFileName, subscriberMapping)
 }
 
-// conversionMu serializes conversions because gonum's HDF5 binding links a C library
-// built without thread safety. One conversion at a time also bounds its CPU and memory.
+// conversionMu serializes conversions because libhdf5 links a C library built
+// without thread safety. One conversion at a time also bounds its CPU and memory.
 var conversionMu sync.Mutex
 
-// publishMCAPMessages decodes every message in the job's MCAP file and publishes it to the given subscribers.
-// The whole subscriber run is serialized, including the HDF5 file creation and close inside its subscriber.
+// The whole subscriber run is serialized, including the MAT file creation and close inside its subscriber.
 func (p *PostProcessMCAPUploadJob) publishMCAPMessages(
 	ctx context.Context,
 	job *FileJob,
-	hdf5FileName string,
+	matFileName string,
 	subscriberMapping map[string]messaging.SubscriberFunc,
 ) (messaging.SubscriberResults, error) {
 	conversionMu.Lock()
@@ -346,8 +334,7 @@ func (p *PostProcessMCAPUploadJob) publishMCAPMessages(
 		// Some subscribers may need specfic information before being able to perform their tasks. For example, (CreateInterpolatedMatlabFile)
 		// Because of this, they will need their first message to set paramaters. This is what initMessage is for.
 		initMessage := make(map[string]interface{})
-		initMessage["schema_list"] = mcapReader.SchemaList
-		initMessage["file_name"] = hdf5FileName
+		initMessage["file_name"] = matFileName
 		initMessage["file_path"] = job.FileDir
 		publisher.Publish(ctx, &utils.DecodedMessage{Topic: messaging.INIT, Data: initMessage})
 		no_schema_channels := make(map[string]bool)
@@ -403,11 +390,11 @@ func routeMCAPDecodedMessage(ctx context.Context, decodedMessage *utils.DecodedM
 	case messaging.EOF:
 		subscriberNames = append(subscriberNames, possibleRoutes...)
 	case "hytech_msgs.VNData":
-		subscriberNames = append(subscriberNames, messaging.LATLON, messaging.HDF5)
+		subscriberNames = append(subscriberNames, messaging.LATLON, messaging.MAT)
 	case "hytech_msgs.VehicleData":
-		subscriberNames = append(subscriberNames, messaging.VELOCITY, messaging.HDF5)
+		subscriberNames = append(subscriberNames, messaging.VELOCITY, messaging.MAT)
 	default:
-		subscriberNames = append(subscriberNames, messaging.HDF5)
+		subscriberNames = append(subscriberNames, messaging.MAT)
 	}
 
 	return subscriberNames

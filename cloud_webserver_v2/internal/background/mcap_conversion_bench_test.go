@@ -1,18 +1,18 @@
 package background
 
-// Benchmarks for the MCAP -> HDF5 conversion pipeline. S3, Mongo and the PNG plots are left out.
+// Benchmarks for the MCAP -> MAT conversion pipeline. S3, Mongo and the PNG plots are left out.
 //
 // Each stage adds one step on top of the previous one, so the differences show where the time goes:
 //
 //	BenchmarkMCAPRead     open the file, load schemas, iterate every record
 //	BenchmarkMCAPDecode   ... + decode every message (GetDecodedMessage)
-//	BenchmarkMCAPConvert  ... + publish to the HDF5 subscriber and write the .h5 (the real conversion)
+//	BenchmarkMCAPConvert  ... + publish to the MAT subscriber and write the .mat (the real conversion)
 //
-// Decoding and HDF5 writing run on separate goroutines in Convert, so (Convert - Decode) is only a
-// rough estimate of the HDF5 cost. Use -cpuprofile for an exact breakdown.
+// Decoding and MAT writing run on separate goroutines in Convert, so (Convert - Decode) is only a
+// rough estimate of the MAT cost. Use -cpuprofile for an exact breakdown.
 //
 // MCAP_BENCH is an .mcap file or a directory of them; every file becomes a sub-benchmark.
-// MCAP_BENCH_KEEP_H5 is an optional directory to write the .h5 into (and keep it) for diffing outputs.
+// MCAP_BENCH_KEEP_MAT is an optional directory to write the .mat into (and keep it) for diffing outputs.
 //
 // Usage (from cloud_webserver_v2/, with HDF5 from homebrew):
 //
@@ -62,7 +62,7 @@ func BenchmarkMCAPDecode(b *testing.B) {
 
 func BenchmarkMCAPConvert(b *testing.B) {
 	forEachMCAP(b, func(b *testing.B, path string) {
-		outDir := os.Getenv("MCAP_BENCH_KEEP_H5")
+		outDir := os.Getenv("MCAP_BENCH_KEEP_MAT")
 		if outDir == "" {
 			outDir = b.TempDir()
 		}
@@ -74,10 +74,10 @@ func BenchmarkMCAPConvert(b *testing.B) {
 			FileDir:  outDir,
 		}
 		subscriberMapping := map[string]messaging.SubscriberFunc{
-			messaging.HDF5: messaging.CreateRawHDF5File,
+			messaging.MAT: messaging.CreateRawMatFile,
 		}
 
-		var h5Size int64
+		var matSize int64
 		for i := 0; i < b.N; i++ {
 			results, err := (&PostProcessMCAPUploadJob{}).publishMCAPMessages(context.Background(), job, job.ID, subscriberMapping)
 			if err != nil {
@@ -85,18 +85,18 @@ func BenchmarkMCAPConvert(b *testing.B) {
 			}
 
 			b.StopTimer()
-			h5Path, _ := results[messaging.HDF5].ResultData["file_path"].(string)
-			info, err := os.Stat(h5Path)
+			matPath, _ := results[messaging.MAT].ResultData["file_path"].(string)
+			info, err := os.Stat(matPath)
 			if err != nil {
-				b.Fatalf("hdf5 subscriber produced no file: %v", err)
+				b.Fatalf("mat subscriber produced no file: %v", err)
 			}
-			h5Size = info.Size()
-			if os.Getenv("MCAP_BENCH_KEEP_H5") == "" {
-				os.Remove(h5Path)
+			matSize = info.Size()
+			if os.Getenv("MCAP_BENCH_KEEP_MAT") == "" {
+				os.Remove(matPath)
 			}
 			b.StartTimer()
 		}
-		b.ReportMetric(float64(h5Size)/1e6, "h5_MB")
+		b.ReportMetric(float64(matSize)/1e6, "mat_MB")
 	})
 }
 

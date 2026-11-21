@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"reflect"
 
 	"github.com/jhump/protoreflect/dynamic"
-
-	"github.com/hytech-racing/cloud-webserver-v2/internal/utils"
 
 	"github.com/hytech-racing/cloud-webserver-v2/internal/messaging/subscribers"
 )
@@ -28,28 +27,11 @@ const (
 const (
 	LATLON   = "vn_plot"
 	VELOCITY = "velocity_plot"
-	HDF5     = "matlab_writer"
+	MAT      = "matlab_writer"
 )
 
 // Subscriber function type serves as a common header for all subscribers to a publisher
 type SubscriberFunc func(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult)
-
-func PrintMessages(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
-	mx_accel := 0.0
-	mx_y_accel := 0.0
-	for msg := range ch {
-		println(msg.content.Data)
-	}
-
-	result := make(map[string]interface{})
-	result["out"] = "Done printing"
-
-	fmt.Println(mx_accel)
-	fmt.Println(mx_y_accel)
-	if results != nil {
-		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
-	}
-}
 
 func PlotLatLon(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
 	xs := make([]float64, 0)
@@ -211,10 +193,11 @@ func PlotTimeVelocity(id int, subscriberName string, ch <-chan SubscribedMessage
 	}
 }
 
-func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
-	var hdf5Writer *subscribers.RawHDF5Writer
+func CreateRawMatFile(id int, subscriberName string, ch <-chan SubscribedMessage, results chan<- SubscriberResult) {
+	var matWriter *subscribers.RawMatWriter
 	var fileName string
 	var filePath string
+	var conversionErr error
 	for msg := range ch {
 		if msg.GetContent().Topic == EOF {
 			break
@@ -222,58 +205,58 @@ func CreateRawHDF5File(id int, subscriberName string, ch <-chan SubscribedMessag
 			if name, exists := msg.GetContent().Data["file_name"]; exists {
 				fileName = name.(string)
 			} else {
-				log.Printf("no file name was provided for the hdf5 file")
+				log.Printf("no file name was provided for the mat file")
 				return
 			}
 
 			if path, exists := msg.GetContent().Data["file_path"]; exists {
 				filePath = path.(string)
 			} else {
-				log.Printf("No HDF5 file was generated for %v: no file path was provided for the hdf5 file", fileName)
+				log.Printf("No MATLAB file was generated for %v: no file path was provided", fileName)
 				return
 			}
 			var err error
-			hdf5Writer, err = subscribers.CreateRawHDF5Writer(filePath, fileName)
+			matWriter, err = subscribers.CreateRawMatWriter(filePath, fileName)
 			if err != nil {
-				log.Printf("No HDF5 file was generated for %v: could not start matlab worker: %v", fileName, err)
+				log.Printf("No MATLAB file was generated for %v: could not start matlab worker: %v", fileName, err)
 				return
 			}
-		} else if hdf5Writer != nil {
-			if err := hdf5Writer.AddSignalValue(msg.GetContent()); err != nil {
-				log.Printf("could not add signal value to hdf5 file: %v", err)
+		} else if matWriter != nil && conversionErr == nil {
+			if err := matWriter.AddSignalValue(msg.GetContent()); err != nil {
+				conversionErr = err
+				log.Printf("could not add signal value to mat file: %v", err)
 			}
 		}
 	}
 
-	if hdf5Writer.MaxSignalLength() > 0 {
-		err := hdf5Writer.HDF5Writer.ChunkWrite(hdf5Writer.AllSignalData())
-		if err != nil {
-			log.Printf("could not chunk write hdf5 file: %v", err)
+	if matWriter == nil {
+		return
+	}
+
+	if conversionErr == nil && matWriter.MaxSignalLength() > 0 {
+		if err := matWriter.MatWriter.WriteChunk(matWriter.AllSignalData()); err != nil {
+			conversionErr = err
+			log.Printf("could not write mat file chunk: %v", err)
 		}
 	}
 
-	err := hdf5Writer.HDF5Writer.Close()
-	if err != nil {
-		log.Printf("could not close hdf5 file: %v", err)
+	if err := matWriter.MatWriter.Close(); err != nil {
+		if conversionErr == nil {
+			conversionErr = err
+		}
+		log.Printf("could not close mat file: %v", err)
+	}
+
+	if conversionErr != nil {
+		if err := os.Remove(matWriter.FilePath()); err != nil && !os.IsNotExist(err) {
+			log.Printf("could not remove incomplete mat file %v: %v", matWriter.FilePath(), err)
+		}
+		return
 	}
 
 	result := make(map[string]interface{})
-	result["file_path"] = hdf5Writer.FilePath()
+	result["file_path"] = matWriter.FilePath()
 	if results != nil {
 		results <- SubscriberResult{SubscriberID: id, SubscriberName: subscriberName, ResultData: result}
 	}
-}
-
-func getInterpolatedSchemaMap(message *SubscribedMessage) (map[string]map[string][]float64, error) {
-	data := message.GetContent().Data
-
-	if schemas, found := data["schema_list"]; found {
-		if reflect.TypeOf(schemas) != reflect.SliceOf(reflect.TypeOf("")) {
-			return nil, fmt.Errorf("correct schema is not provided for matlab generation")
-		}
-
-		return utils.GetMcapSchemaMap(schemas.([]string))
-	}
-
-	return nil, fmt.Errorf("correct schema is not provided for matlab generation")
 }

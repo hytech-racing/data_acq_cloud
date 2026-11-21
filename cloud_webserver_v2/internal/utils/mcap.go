@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
-	"strconv"
 	"time"
 
 	"github.com/foxglove/mcap/go/mcap"
@@ -19,9 +17,8 @@ type McapUtils struct {
 
 // McapReader contains information relevant to reading and parsing an MCAP file
 type McapReader struct {
-	Reader     *mcap.Reader
-	Info       *mcap.Info
-	SchemaList []string
+	Reader *mcap.Reader
+	Info   *mcap.Info
 }
 
 // DecodedMessage contains decoded data from a protobuf encoded message
@@ -75,15 +72,9 @@ func (m *McapUtils) NewReader(r io.Reader) (*McapReader, error) {
 		return nil, err
 	}
 
-	schemaList, err := m.GetMcapSchemaList(reader)
-	if err != nil {
-		return nil, err
-	}
-
 	return &McapReader{
-		Reader:     reader,
-		Info:       info,
-		SchemaList: schemaList,
+		Reader: reader,
+		Info:   info,
 	}, nil
 }
 
@@ -181,72 +172,4 @@ func (m *McapUtils) LoadAllSchemas(info *mcap.Info) error {
 	}
 
 	return nil
-}
-
-func (m *McapUtils) GetMcapSchemaList(reader *mcap.Reader) ([]string, error) {
-	mcapInfo, err := reader.Info()
-	if err != nil {
-		return nil, err
-	}
-	schemaList := make([]string, 0)
-
-	for _, schema := range mcapInfo.Schemas {
-		schemaList = append(schemaList, schema.Name)
-	}
-
-	return schemaList, nil
-}
-
-func GetMcapSchemaMap(schemaList []string) (map[string]map[string][]float64, error) {
-	mcapSchemaMap := make(map[string]map[string][]float64)
-	mcapSchemaMap["global_times"] = make(map[string][]float64)
-	mcapSchemaMap["global_times"]["times"] = make([]float64, 0)
-
-	for _, schemaName := range schemaList {
-		mcapSchemaMap[schemaName] = make(map[string][]float64)
-	}
-
-	return mcapSchemaMap, nil
-}
-
-func GetFloatValueOfInterface(val interface{}) float64 {
-	if val == nil {
-		return 0
-	}
-
-	var out float64
-
-	switch x := val.(type) {
-	case float32:
-		out = float64(x)
-	case uint64:
-		out = float64(x)
-	case int32:
-		out = float64(x)
-	case string:
-		if x == "" {
-			return 0
-		}
-		i, err := strconv.Atoi(x)
-		if err != nil {
-			panic(err)
-		}
-		out = float64(i)
-	case bool:
-		if val.(bool) {
-			out = 1
-		} else {
-			out = 0
-		}
-	}
-
-	if math.IsInf(out, 1) {
-		out = math.MaxFloat32
-	} else if math.IsInf(out, -1) {
-		out = math.SmallestNonzeroFloat32
-	} else if math.IsNaN(out) {
-		out = math.MaxFloat32
-	}
-
-	return out
 }
