@@ -41,6 +41,23 @@ type HDF5Column struct {
 	err error
 }
 
+// IsSupportedColumnValue reports whether value has a type that an HDF5Column can store.
+// Protobuf well-known types (for example *timestamppb.Timestamp, which the dynamic decoder
+// returns for google.protobuf.Timestamp fields), nil and other pointer/nested values are not
+// supported; writers must skip them instead of adding a column that fails when it is written.
+func IsSupportedColumnValue(value interface{}) bool {
+	switch value.(type) {
+	case []byte, string,
+		float32, float64,
+		int8, int16, int32, int64,
+		uint8, uint16, uint32, uint64,
+		bool:
+		return true
+	default:
+		return false
+	}
+}
+
 // NewHDF5Column creates an empty column whose HDF5 type is chosen from the signal's first value
 func NewHDF5Column(firstValue interface{}) *HDF5Column {
 	column := &HDF5Column{
