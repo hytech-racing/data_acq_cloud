@@ -9,7 +9,6 @@ import (
 
 const MaxPageSize = 200
 
-// PageCursor is the sort tuple of the last row on the previous page.
 type PageCursor struct {
 	Date time.Time
 	ID   primitive.ObjectID
@@ -36,10 +35,6 @@ func (p PageRequest) Limit() int {
 
 func (p PageRequest) After() *PageCursor {
 	return p.after
-}
-
-func (p PageRequest) IsZero() bool {
-	return p.limit == 0
 }
 
 type VehicleRunPage struct {

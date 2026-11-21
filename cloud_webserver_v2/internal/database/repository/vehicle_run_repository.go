@@ -84,7 +84,7 @@ func (repo *MongoVehicleRunRepository) GetWithVehicleFilters(ctx context.Context
 // GetVehicleRunPage returns at most page.Limit()+1 rows so the caller can tell
 // whether another page exists.
 func (repo *MongoVehicleRunRepository) GetVehicleRunPage(ctx context.Context, filters *bson.M, page models.PageRequest) ([]models.VehicleRunModel, error) {
-	if page.IsZero() {
+	if page.Limit() == 0 {
 		return nil, fmt.Errorf("page request must set a limit")
 	}
 
