@@ -1,7 +1,6 @@
 package messaging
 
 import (
-	"fmt"
 	"log"
 	"math"
 	"os"
