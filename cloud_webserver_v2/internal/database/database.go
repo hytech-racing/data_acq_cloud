@@ -44,7 +44,7 @@ func NewDatabaseClient(ctx context.Context, uri string) (*DatabaseClient, error)
 		return nil, fmt.Errorf("could not connect to database: %v", vehicleDataDatabase)
 	}
 
-	vehicleRunRepository, err := repository.NewMongoVehicleRunRepository(client, vehicleDataDatabase)
+	vehicleRunRepository, err := repository.NewMongoVehicleRunRepository(ctx, client, vehicleDataDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("could not create vechicleRunRepository: %v", err)
 	}

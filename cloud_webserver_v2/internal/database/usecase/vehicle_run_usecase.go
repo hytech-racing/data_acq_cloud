@@ -43,16 +43,12 @@ func (uc *VehicleRunUseCase) FindVehicleRunByMCAPFileHash(ctx context.Context, f
 	return result, nil
 }
 
-func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters *models.VehicleRunModelFilters) ([]models.VehicleRunModel, error) {
+func buildFilterBSON(filters *models.VehicleRunModelFilters, includeHidden bool) bson.M {
 	bson_filters_m := bson.M{}
 	bson_or := bson.A{}
 
 	if filters.ID != nil {
-		id, err := primitive.ObjectIDFromHex(filters.ID.Hex())
-		if err != nil {
-			return nil, err
-		}
-		bson_filters_m["id"] = id
+		bson_filters_m["id"] = *filters.ID
 	}
 
 	if filters.BeforeDate != nil || filters.AfterDate != nil {
@@ -107,13 +103,43 @@ func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters
 		bson_filters_m["$or"] = bson_or
 	}
 
-	// Execute the query
-	result, err := uc.vechicleRunRepo.GetWithVehicleFilters(context.TODO(), &bson_filters_m)
+	if !includeHidden {
+		bson_filters_m["hidden"] = bson.M{"$ne": true}
+	}
+
+	return bson_filters_m
+}
+
+func (uc *VehicleRunUseCase) GetVehicleRunByFilters(ctx context.Context, filters *models.VehicleRunModelFilters, includeHidden bool) ([]models.VehicleRunModel, error) {
+	bson_filters_m := buildFilterBSON(filters, includeHidden)
+
+	result, err := uc.vechicleRunRepo.GetWithVehicleFilters(ctx, &bson_filters_m)
 	if err != nil {
 		return nil, err
 	}
 
 	return result, nil
+}
+
+func (uc *VehicleRunUseCase) GetVehicleRunByFiltersPage(ctx context.Context, filters *models.VehicleRunModelFilters, includeHidden bool, page models.PageRequest) ([]models.VehicleRunModel, *models.PageCursor, error) {
+	bson_filters_m := buildFilterBSON(filters, includeHidden)
+
+	runs, err := uc.vechicleRunRepo.GetVehicleRunPage(ctx, &bson_filters_m, page)
+	if err != nil {
+		return []models.VehicleRunModel{}, nil, err
+	}
+
+	// MongoDB returns limit+1 if there are more pages
+	if len(runs) > page.Limit() {
+		runs = runs[:page.Limit()]
+		last := runs[len(runs)-1]
+		return runs, &models.PageCursor{Date: last.Date, ID: last.Id}, nil
+	}
+	if runs == nil {
+		runs = make([]models.VehicleRunModel, 0)
+	}
+
+	return runs, nil, nil
 }
 
 func (uc *VehicleRunUseCase) GetVehicleRunById(ctx context.Context, id primitive.ObjectID) (*models.VehicleRunModel, error) {

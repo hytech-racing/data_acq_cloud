@@ -29,7 +29,7 @@ import (
 */
 
 const (
-	totalMcapFetchesPerMin = 30 
+	totalMcapFetchesPerMin = 30
 )
 
 // mcapHandler handles all requests related to MCAP data (uploads, deletions, edits, reading).
@@ -40,7 +40,6 @@ type mcapHandler struct {
 	authHandler    *AuthHandler
 	mcapFetchCount int
 	lastResetTime  time.Time
-	// Gives the handler its own lock
 	rateLimitMu	   sync.Mutex       
 }
 
@@ -53,17 +52,17 @@ func NewMcapHandler(
 	authHandler *AuthHandler,
 ) {
 	handler := &mcapHandler{
-		s3Repository:  s3Repository,
-		dbClient:      dbClient,
-		fileProcessor: fileProcessor,
-		authHandler:   authHandler,
+		s3Repository:   s3Repository,
+		dbClient:       dbClient,
+		fileProcessor:  fileProcessor,
+		authHandler:    authHandler,
 		mcapFetchCount: 0,
-		lastResetTime: time.Now(),
+		lastResetTime:  time.Now(),
 	}
 
 	r.Route("/mcaps", func(r chi.Router) {
 		// static routes
-		r.Get("/", handler.GetMcapsFromFilters)
+		r.Get("/", HandlerFunc(handler.GetMcapsFromFilters).ServeHTTP)
 		r.Get("/subscribe", handler.ListenToMcapUploads)
 		r.Get("/pending", handler.GetPendingMcapUploads)
 
@@ -76,10 +75,8 @@ func NewMcapHandler(
 	})
 }
 
-func (h *mcapHandler) applyRateLimit(w http.ResponseWriter) bool {
-	// Only one function at a time can check and update the counter
+func (h *mcapHandler) applyRateLimit() bool {
 	h.rateLimitMu.Lock()
-	// Unlock defer automatically when the function returns
 	defer h.rateLimitMu.Unlock()
 	if time.Now().Sub(h.lastResetTime).Abs().Seconds() > 60 {
 		h.lastResetTime = time.Now()
@@ -87,22 +84,24 @@ func (h *mcapHandler) applyRateLimit(w http.ResponseWriter) bool {
 	} else if h.mcapFetchCount > totalMcapFetchesPerMin {
 		return true
 	} else {
-		h.mcapFetchCount++;
+		h.mcapFetchCount++
 	}
 	return false
 }
 
-// GetMcapsFromFilters takes in filters through Query parameters and will respond with a
-// map with a message and data field where data contains the filtered MCAPs
-func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request) {
+func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
 	queryParams := r.URL.Query()
 	_, logInErr := h.authHandler.CurrentSession(r)
 	filters := models.VehicleRunModelFilters{}
 
-	if logInErr != nil && h.applyRateLimit(w) {
-		http.Error(w, "Rate limit hit.", http.StatusTooManyRequests)
-		return
+	if logInErr != nil && h.applyRateLimit() {
+		return NewHandlerError("Rate limit hit", http.StatusTooManyRequests)
+	}
+
+	page, paged, err := parsePageRequest(queryParams)
+	if err != nil {
+		return NewHandlerError(err.Error(), http.StatusBadRequest)
 	}
 
 	if queryParams.Has("id") {
@@ -149,22 +148,32 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 		filters.SearchText = &search_text
 	}
 
-	resModels, err := h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters)
+	includeHidden := logInErr == nil
+	var runs []models.VehicleRunModel
+	var nextCursor *models.PageCursor
+	if paged {
+		runs, nextCursor, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFiltersPage(ctx, &filters, includeHidden, page)
+	} else {
+		runs, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters, includeHidden)
+	}
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("failed to list MCAPs: %v", err)
+		return NewHandlerError("failed to list MCAPs", http.StatusInternalServerError)
 	}
 
-	res := make([]models.VehicleRunModelResponse, 0, len(resModels))
-	for _, model := range resModels {
-		if logInErr == nil || !model.Hidden {
-			res = append(res, models.VehicleRunSerialize(ctx, h.s3Repository, model))
-		}
+	res := make([]models.VehicleRunModelResponse, 0, len(runs))
+	for _, model := range runs {
+		res = append(res, models.VehicleRunSerialize(ctx, h.s3Repository, model))
 	}
 
 	data := make(map[string]interface{})
 	data["data"] = res
 	data["message"] = make(map[string]interface{})
+	if nextCursor != nil {
+		data["next_cursor"] = encodePageCursor(*nextCursor)
+	}
 	render.JSON(w, r, data)
+	return nil
 }
 
 func (h *mcapHandler) GetPendingMcapUploads(w http.ResponseWriter, r *http.Request) {
@@ -212,8 +221,6 @@ func (h *mcapHandler) ListenToMcapUploads(w http.ResponseWriter, r *http.Request
 			if _, err := fmt.Fprintf(w, "data: %s\n\n", event); err != nil {
 				return
 			}
-			// Then, the ResponseWriter (typecasted as a http.Flusher) 
-			// flushes the data to the subscriber on the frontend side
 			flusher.Flush()
 		}
 	}
@@ -224,7 +231,7 @@ func (h *mcapHandler) GetMcapFromID(w http.ResponseWriter, r *http.Request) *Han
 	ctx := r.Context()
 	_, logInErr := h.authHandler.CurrentSession(r)
 
-	if logInErr != nil && h.applyRateLimit(w) {
+	if logInErr != nil && h.applyRateLimit() {
 		return NewHandlerError("Rate limit hit", http.StatusTooManyRequests)
 	}
 
