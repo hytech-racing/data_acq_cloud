@@ -89,12 +89,6 @@ func (h *mcapHandler) applyRateLimit() bool {
 	return false
 }
 
-type mcapListResponse struct {
-	Data       []models.VehicleRunModelResponse `json:"data"`
-	Message    map[string]interface{}           `json:"message"`
-	NextCursor string                           `json:"next_cursor,omitempty"`
-}
-
 func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request) *HandlerError {
 	ctx := r.Context()
 	queryParams := r.URL.Query()
@@ -159,16 +153,12 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 	var nextCursor *models.PageCursor
 	if paged {
 		runs, nextCursor, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFiltersPage(ctx, &filters, includeHidden, page)
-		if err != nil {
-			log.Printf("failed to list MCAPs: %v", err)
-			return NewHandlerError("failed to list MCAPs", http.StatusInternalServerError)
-		}
 	} else {
 		runs, err = h.dbClient.VehicleRunUseCase().GetVehicleRunByFilters(ctx, &filters, includeHidden)
-		if err != nil {
-			log.Printf("failed to list MCAPs: %v", err)
-			return NewHandlerError("failed to list MCAPs", http.StatusInternalServerError)
-		}
+	}
+	if err != nil {
+		log.Printf("failed to list MCAPs: %v", err)
+		return NewHandlerError("failed to list MCAPs", http.StatusInternalServerError)
 	}
 
 	res := make([]models.VehicleRunModelResponse, 0, len(runs))
@@ -176,14 +166,13 @@ func (h *mcapHandler) GetMcapsFromFilters(w http.ResponseWriter, r *http.Request
 		res = append(res, models.VehicleRunSerialize(ctx, h.s3Repository, model))
 	}
 
-	response := mcapListResponse{
-		Data:    res,
-		Message: make(map[string]interface{}),
-	}
+	data := make(map[string]interface{})
+	data["data"] = res
+	data["message"] = make(map[string]interface{})
 	if nextCursor != nil {
-		response.NextCursor = encodePageCursor(*nextCursor)
+		data["next_cursor"] = encodePageCursor(*nextCursor)
 	}
-	render.JSON(w, r, response)
+	render.JSON(w, r, data)
 	return nil
 }
 
